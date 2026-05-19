@@ -33,7 +33,7 @@ html, body {
 button { -webkit-tap-highlight-color: transparent; }
 
 /* Custom range slider styling — themed track + thumb */
-input[type="range"].betme-slider {
+input[type="range"].fayd-slider {
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
@@ -42,7 +42,7 @@ input[type="range"].betme-slider {
   border-radius: 99px;
   outline: none;
 }
-input[type="range"].betme-slider::-webkit-slider-thumb {
+input[type="range"].fayd-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
   width: 22px;
@@ -52,7 +52,7 @@ input[type="range"].betme-slider::-webkit-slider-thumb {
   border: 3px solid var(--yes);
   cursor: pointer;
 }
-input[type="range"].betme-slider::-moz-range-thumb {
+input[type="range"].fayd-slider::-moz-range-thumb {
   width: 22px;
   height: 22px;
   border-radius: 99px;

@@ -142,6 +142,8 @@ export interface BetView extends BetRow {
   // Phase 2 — present when the UI loads contract/negotiation context for the bet.
   contracts?: ContractView[];
   open_negotiations?: NegotiationView[];
+  // Phase 3 (social feed) — present on the home/group feed.
+  post_meta?: PostMeta;
 }
 
 export interface ContractView extends ContractRow {
@@ -164,4 +166,100 @@ export interface GroupView extends GroupRow {
   member_count: number;
   is_admin: boolean;
   pending_join_count: number;
+}
+
+// ────────────────────────────────────────────────
+// Social-feed view models — purely UI shapes, hand-rolled for mock data.
+// Live data will derive these from the existing tables + new posts /
+// post_reactions / post_comments / post_poll_votes tables we'll add
+// later. No backend wiring yet.
+// ────────────────────────────────────────────────
+export interface Reaction {
+  emoji: string;
+  count: number;
+  reactedByMe: boolean;
+}
+
+export interface CommentView {
+  id: string;
+  user: UserLite;
+  text: string;
+  created_at: string;
+}
+
+export interface PollView {
+  yes_votes: number;
+  no_votes: number;
+  my_vote: BetSide | null;
+}
+
+/**
+ * A sub-contract spawned via the "Start New Contract" flow on a post.
+ * Independent from the original contract — its own line, stake, and fill state.
+ */
+export interface SubContractView {
+  id: string;
+  bet_id: string;
+  poster: UserLite;
+  poster_side: BetSide;
+  yes_probability: number;
+  stake_cents: number;        // total face value (one tier)
+  filled_cents: number;       // amount filled by counter-parties so far
+  created_at: string;
+}
+
+/** Label describing how the viewer knows the poster, shown under their name. */
+export interface RelationshipLabel {
+  kind: "friend" | "group" | "self";
+  label: string;
+}
+
+/**
+ * Everything the Instagram-style PostCard needs that isn't already on
+ * BetRow / BetView. Attached as an optional `post_meta` field on BetView
+ * so we don't break Phase 1/2 pages that still read the older shape.
+ */
+export interface PostMeta {
+  relationship: RelationshipLabel;
+  /** Which side the original poster took. */
+  poster_side: BetSide;
+  /** Total filled on the *original* contract (counter-party side). */
+  original_filled_cents: number;
+  reactions: Reaction[];
+  comments: CommentView[];
+  poll: PollView;
+  sub_contracts: SubContractView[];
+}
+
+// ────────────────────────────────────────────────
+// Messaging (Phase 4) — UI-only shapes; no Supabase tables yet.
+// TODO: add `conversations`, `conversation_members`, `messages` tables.
+// ────────────────────────────────────────────────
+export type ConversationKind = "dm" | "group";
+export type ChatMessageKind = "text" | "bet";
+
+export interface ChatMessageView {
+  id: string;
+  conversation_id: string;
+  sender: UserLite;
+  kind: ChatMessageKind;
+  /** Present when kind === "text". */
+  text?: string;
+  /** Present when kind === "bet" — references a BetView by id. */
+  bet_id?: string;
+  created_at: string;
+}
+
+export interface ConversationView {
+  id: string;
+  kind: ConversationKind;
+  /** For DMs: the other participant. */
+  other_user?: UserLite;
+  /** For group chats: the underlying group. */
+  group?: GroupView;
+  /** Inbox label — "Sarah K." or "EH7 House". */
+  title: string;
+  unread_count: number;
+  /** Newest message (for the inbox preview). */
+  last_message?: ChatMessageView;
 }

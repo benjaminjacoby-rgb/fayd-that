@@ -71,7 +71,7 @@ export function LoginClient() {
   return (
     <div className="flex-1 flex flex-col px-6 pt-16">
       <div className="mb-10">
-        <div className="text-3xl font-bold tracking-tight text-yes">BetME</div>
+        <div className="text-3xl font-bold tracking-tight text-yes">Fayd</div>
         <p className="text-text2 mt-2 text-sm">Bets that stick. Between friends.</p>
       </div>
 

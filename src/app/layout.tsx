@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "BetME",
-  description: "Handshake bets between friends — escrowed and trackable.",
+  title: "Fayd",
+  description: "Social bets between friends — escrowed and trackable.",
 };
 
 export const viewport: Viewport = {

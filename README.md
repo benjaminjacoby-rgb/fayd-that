@@ -1,6 +1,6 @@
-# BetME
+# Fayd
 
-Social handshake-betting app. Next.js 14 (App Router) + Supabase + Stripe Connect + Mapbox.
+Social bet-posting app — Instagram-style feed of bets between friends and groups. Next.js 14 (App Router) + Supabase + Stripe Connect + Mapbox.
 
 ## Quickstart
 

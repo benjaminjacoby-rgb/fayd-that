@@ -9,28 +9,33 @@ interface Tab {
   label: string;
   icon: ReactNode;
   center?: boolean;
+  /** When true, this tab is considered "active" if the URL starts with `href`. */
+  prefixMatch?: boolean;
 }
 
 const TABS: Tab[] = [
-  { href: "/",        label: "Home",    icon: <HomeIcon /> },
-  { href: "/map",     label: "Map",     icon: <PinIcon /> },
-  { href: "/create",  label: "Create",  icon: <PlusIcon />, center: true },
-  { href: "/pending", label: "Pending", icon: <ClockIcon /> },
-  { href: "/profile", label: "Profile", icon: <PersonIcon /> },
+  { href: "/",         label: "Home",       icon: <HomeIcon /> },
+  { href: "/groups",   label: "Groups",     icon: <PeopleIcon />, prefixMatch: true },
+  { href: "/create",   label: "Post a Bet", icon: <PlusIcon />, center: true },
+  { href: "/messages", label: "Messages",   icon: <ChatIcon />, prefixMatch: true },
+  { href: "/profile",  label: "Profile",    icon: <PersonIcon /> },
 ];
 
-export function BottomNav({ pendingCount = 0 }: { pendingCount?: number }) {
+export function BottomNav() {
   const pathname = usePathname();
   return (
     <nav className="sticky bottom-0 z-30 w-full bg-bg2/95 backdrop-blur border-t border-bg3">
       <ul className="flex items-center justify-between px-3 pt-2 pb-3">
         {TABS.map((t) => {
-          const active = pathname === t.href;
+          const active = t.prefixMatch
+            ? pathname === t.href || pathname.startsWith(`${t.href}/`)
+            : pathname === t.href;
           if (t.center) {
             return (
               <li key={t.href} className="-mt-6">
                 <Link
                   href={t.href}
+                  aria-label={t.label}
                   className="inline-flex items-center justify-center w-14 h-14 rounded-pill bg-yes text-bg shadow-lg shadow-yes/30 active:scale-95 transition"
                 >
                   {t.icon}
@@ -48,11 +53,6 @@ export function BottomNav({ pendingCount = 0 }: { pendingCount?: number }) {
               >
                 <span className="w-6 h-6">{t.icon}</span>
                 {t.label}
-                {t.href === "/pending" && pendingCount > 0 ? (
-                  <span className="absolute -top-1 right-1/3 translate-x-3 bg-no text-bg text-[10px] font-bold rounded-pill px-1.5 py-px min-w-[18px] text-center">
-                    {pendingCount}
-                  </span>
-                ) : null}
               </Link>
             </li>
           );
@@ -69,10 +69,13 @@ function HomeIcon() {
     </svg>
   );
 }
-function PinIcon() {
+function PeopleIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 22s7-7.5 7-13a7 7 0 10-14 0c0 5.5 7 13 7 13z" /><circle cx="12" cy="9" r="2.5" />
+      <circle cx="9" cy="8" r="3.2" />
+      <path d="M2.5 20c0-3.4 2.9-5.6 6.5-5.6S15.5 16.6 15.5 20" />
+      <circle cx="17" cy="9" r="2.6" />
+      <path d="M16 14.4c2.7.4 5 2.4 5 5.6" />
     </svg>
   );
 }
@@ -83,10 +86,10 @@ function PlusIcon() {
     </svg>
   );
 }
-function ClockIcon() {
+function ChatIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" />
+      <path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z" />
     </svg>
   );
 }

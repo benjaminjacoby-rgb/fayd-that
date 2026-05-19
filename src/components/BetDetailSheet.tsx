@@ -303,7 +303,7 @@ function OfferComposer({
           max={MAX_PROBABILITY}
           value={yesProbability}
           onChange={(e) => onYesChange(parseInt(e.target.value, 10))}
-          className="betme-slider"
+          className="fayd-slider"
         />
       </div>
 

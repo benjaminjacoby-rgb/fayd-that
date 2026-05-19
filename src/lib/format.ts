@@ -69,7 +69,7 @@ export function fullName(u: { first_name: string | null; last_name_initial: stri
  * Computes per-side payouts for a fixed-odds two-sided bet.
  * Given a YES probability p and a stake S the YES side puts up, the NO side
  * stakes S * p/(1-p) so expected value is zero. We surface "you win $X" as the
- * counterparty stake (the amount you'd take home on a win, less the BetME fee).
+ * counterparty stake (the amount you'd take home on a win, less the Fayd fee).
  */
 export function payoutPreview(
   stakeCents: number,

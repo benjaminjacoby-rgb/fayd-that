@@ -15,7 +15,7 @@ export default async function CreatePage() {
   const groups = USE_MOCK_DATA ? mockGroupsForCurrentUser() : await getGroupsForUser(me.id);
 
   return (
-    <AppShell title="New bet">
+    <AppShell title="Post a Bet">
       <CreateBetClient walletCents={me.wallet_balance_cents} friends={friends} groups={groups} />
     </AppShell>
   );

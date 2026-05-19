@@ -3,12 +3,21 @@
 // TODO: delete once Supabase is wired in production.
 
 import type {
+  BetSide,
   BetView,
+  ChatMessageView,
+  CommentView,
   ContractView,
+  ConversationView,
   GroupRow,
   GroupView,
   NegotiationView,
+  PollView,
+  PostMeta,
+  Reaction,
+  RelationshipLabel,
   StakeTierCents,
+  SubContractView,
   UserLite,
   UserRow,
 } from "@/types/db";
@@ -42,7 +51,7 @@ function makeUser(
 }
 
 export const MOCK_USER_DIRECTORY: Record<string, UserRow> = {
-  "mock-me": makeUser("mock-me", "You", "Y", "yes", { phone: "+15555550100", username: "you", wallet: 4_250 }),
+  "mock-me": makeUser("mock-me", "You",   "Y", "yes",    { phone: "+15555550100", username: "you",     wallet: 4_250 }),
   "u-max":    makeUser("u-max",    "Max",    "T", "blue",   { phone: "+15555550101", username: "maxt" }),
   "u-sarah":  makeUser("u-sarah",  "Sarah",  "K", "purple", { phone: "+15555550102", username: "sarahk" }),
   "u-noor":   makeUser("u-noor",   "Noor",   "A", "orange", { phone: "+15555550103", username: "noor" }),
@@ -157,8 +166,13 @@ export function mockGroupById(id: string): GroupRow | undefined {
   return MOCK_GROUPS_DIRECTORY.find((g) => g.id === id);
 }
 
+function groupNameById(id: string | null | undefined): string {
+  if (!id) return "";
+  return MOCK_GROUPS_DIRECTORY.find((g) => g.id === id)?.name ?? "";
+}
+
 // ────────────────────────────────────────────────
-// Bets
+// Contracts + negotiations factories
 // ────────────────────────────────────────────────
 function contract(
   id: string,
@@ -207,7 +221,60 @@ function negotiation(
   };
 }
 
+// ────────────────────────────────────────────────
+// Social post factories (reactions, comments, polls, sub-contracts)
+// ────────────────────────────────────────────────
+function reaction(emoji: string, count: number, reactedByMe = false): Reaction {
+  return { emoji, count, reactedByMe };
+}
+
+function comment(id: string, userId: string, text: string, ago: number): CommentView {
+  return { id, user: u(userId), text, created_at: hoursAgo(ago) };
+}
+
+function poll(yesVotes: number, noVotes: number, myVote: BetSide | null = null): PollView {
+  return { yes_votes: yesVotes, no_votes: noVotes, my_vote: myVote };
+}
+
+function subContract(
+  id: string,
+  betId: string,
+  posterId: string,
+  posterSide: BetSide,
+  yesProb: number,
+  stakeCents: StakeTierCents,
+  filledCents: number,
+  minutesAgoNum: number,
+): SubContractView {
+  return {
+    id,
+    bet_id: betId,
+    poster: u(posterId),
+    poster_side: posterSide,
+    yes_probability: yesProb,
+    stake_cents: stakeCents,
+    filled_cents: filledCents,
+    created_at: minutesAgo(minutesAgoNum),
+  };
+}
+
+/**
+ * Derive a relationship label for the viewer from the bet's scope/creator.
+ * - own post     → "You"
+ * - friend scope → "Friend"
+ * - group scope  → "from <group name>"
+ */
+function relFor(creatorId: string, scope: "friends" | "group" | "geo", groupId: string | null): RelationshipLabel {
+  if (creatorId === MOCK_CURRENT_USER.id) return { kind: "self", label: "You" };
+  if (scope === "group" && groupId) return { kind: "group", label: `from ${groupNameById(groupId)}` };
+  return { kind: "friend", label: "Friend" };
+}
+
+// ────────────────────────────────────────────────
+// Bets (= social posts)
+// ────────────────────────────────────────────────
 export const MOCK_BETS: BetView[] = [
+  // ── b-1: Max bets YES on Goldman, partially filled ──
   {
     id: "b-1",
     creator_id: "u-max",
@@ -221,21 +288,32 @@ export const MOCK_BETS: BetView[] = [
     scope: "friends",
     group_id: null,
     geo_lat: null, geo_lng: null, geo_radius_meters: null,
-    created_at: hoursAgo(2),
+    created_at: minutesAgo(14),
     resolved_at: null,
     creator: u("u-max"),
     participants: [
       { id: "p-1", bet_id: "b-1", user_id: "u-max", side: "yes", stake_cents: 2_500, stripe_payment_intent_id: null, paid_at: hoursAgo(2), outcome: null, user: u("u-max") },
     ],
     contracts: [
-      contract("c-1-1", "b-1", "u-max", "u-sarah", 35, 2_500, 2),
-      contract("c-1-2", "b-1", "u-max", "u-jay",   40, 1_000, 1),
+      contract("c-1-1", "b-1", "u-max", "u-sarah", 35, 1_000, 1),
+      contract("c-1-2", "b-1", "u-max", "u-jay",   35,   500, 1),
     ],
-    open_negotiations: [
-      negotiation("n-1-1", "b-1", "u-noor", 25, 5_000, 35),
-      negotiation("n-1-2", "b-1", "u-liam", 30, 2_500, 180),
-    ],
+    open_negotiations: [],
+    post_meta: {
+      relationship: relFor("u-max", "friends", null),
+      poster_side: "yes",
+      original_filled_cents: 1_500, // $15 of $25 filled on the NO side
+      reactions: [reaction("🔥", 7, true), reaction("🙏", 4), reaction("😭", 2)],
+      comments: [
+        comment("cm-1-1", "u-sarah", "praying for u 🙏", 1),
+        comment("cm-1-2", "u-noor", "didn't u bomb the leetcode tho", 0.5),
+      ],
+      poll: poll(4, 11, null),
+      sub_contracts: [],
+    },
   },
+
+  // ── b-2: Sarah bets YES on pushups, fully filled, one sub-contract ──
   {
     id: "b-2",
     creator_id: "u-sarah",
@@ -254,16 +332,28 @@ export const MOCK_BETS: BetView[] = [
     creator: u("u-sarah"),
     participants: [
       { id: "p-2", bet_id: "b-2", user_id: "u-sarah", side: "yes", stake_cents: 1_000, stripe_payment_intent_id: null, paid_at: hoursAgo(5), outcome: null, user: u("u-sarah") },
-      { id: "p-3", bet_id: "b-2", user_id: "u-noor",  side: "no",  stake_cents: 1_000, stripe_payment_intent_id: null, paid_at: hoursAgo(4), outcome: null, user: u("u-noor") },
     ],
     contracts: [
       contract("c-2-1", "b-2", "u-sarah", "u-noor",  65, 1_000, 4),
-      contract("c-2-2", "b-2", "u-sarah", "u-diego", 70, 2_500, 2),
     ],
-    open_negotiations: [
-      negotiation("n-2-1", "b-2", "u-priya", 55, 5_000, 32),
-    ],
+    open_negotiations: [],
+    post_meta: {
+      relationship: relFor("u-sarah", "friends", null),
+      poster_side: "yes",
+      original_filled_cents: 1_000, // fully filled
+      reactions: [reaction("💀", 12), reaction("🔥", 5, true), reaction("😂", 3)],
+      comments: [
+        comment("cm-2-1", "u-diego", "doing this with you 💪", 4),
+        comment("cm-2-2", "u-jay", "lock in girl", 3),
+      ],
+      poll: poll(8, 6, "yes"),
+      sub_contracts: [
+        subContract("sc-2-1", "b-2", "u-priya", "no", 55, 5_000, 1_500, 32),
+      ],
+    },
   },
+
+  // ── b-3: You bet YES on chess, fully filled, locked ──
   {
     id: "b-3",
     creator_id: "mock-me",
@@ -288,7 +378,21 @@ export const MOCK_BETS: BetView[] = [
       contract("c-3-1", "b-3", "mock-me", "u-jay", 55, 2_500, 18),
     ],
     open_negotiations: [],
+    post_meta: {
+      relationship: relFor("mock-me", "friends", null),
+      poster_side: "yes",
+      original_filled_cents: 2_500, // fully filled
+      reactions: [reaction("♟️", 6), reaction("🤝", 4, true), reaction("😂", 2)],
+      comments: [
+        comment("cm-3-1", "u-jay", "lol bring it", 18),
+        comment("cm-3-2", "u-sarah", "i want video evidence", 15),
+      ],
+      poll: poll(5, 9, null),
+      sub_contracts: [],
+    },
   },
+
+  // ── b-4: Noor bets YES on BTC, expired, fully filled ──
   {
     id: "b-4",
     creator_id: "u-noor",
@@ -311,16 +415,109 @@ export const MOCK_BETS: BetView[] = [
     ],
     contracts: [
       contract("c-4-1", "b-4", "u-noor", "mock-me", 40, 5_000, 70),
-      contract("c-4-2", "b-4", "u-noor", "u-emma",  35, 2_500, 48),
     ],
-    open_negotiations: [
-      negotiation("n-4-1", "b-4", "u-marcus", 50, 10_000, 12),
-    ],
+    open_negotiations: [],
+    post_meta: {
+      relationship: relFor("u-noor", "friends", null),
+      poster_side: "yes",
+      original_filled_cents: 5_000, // fully filled
+      reactions: [reaction("📉", 8, true), reaction("🚀", 4), reaction("💀", 3)],
+      comments: [
+        comment("cm-4-1", "u-marcus", "rip", 4),
+        comment("cm-4-2", "u-max", "told u", 6),
+      ],
+      poll: poll(6, 11, "no"),
+      sub_contracts: [],
+    },
   },
+
+  // ── b-5: Jay bets NO on Knicks (poster on NO side), partially filled, sub-contract ──
+  {
+    id: "b-5",
+    creator_id: "u-jay",
+    question: "Knicks make the Eastern Conference Finals",
+    category: "other",
+    yes_probability: 45,
+    stake_cents: 2_500,
+    expiry_at: hours(360),
+    resolution_notes: null,
+    status: "open",
+    scope: "friends",
+    group_id: null,
+    geo_lat: null, geo_lng: null, geo_radius_meters: null,
+    created_at: minutesAgo(220),
+    resolved_at: null,
+    creator: u("u-jay"),
+    participants: [
+      { id: "p-5-1", bet_id: "b-5", user_id: "u-jay", side: "no", stake_cents: 2_500, stripe_payment_intent_id: null, paid_at: hoursAgo(3), outcome: null, user: u("u-jay") },
+    ],
+    contracts: [
+      // Jay on NO; counter-party on YES. Two partial fills totalling $10 of $25.
+      contract("c-5-1", "b-5", "u-sarah",  "u-jay", 45,   500, 2),
+      contract("c-5-2", "b-5", "u-noor",   "u-jay", 45,   500, 1),
+    ],
+    open_negotiations: [],
+    post_meta: {
+      relationship: relFor("u-jay", "friends", null),
+      poster_side: "no",
+      original_filled_cents: 1_000, // $10 filled of $25 on the YES side
+      reactions: [reaction("🏀", 8), reaction("😂", 3, true), reaction("🙏", 2)],
+      comments: [
+        comment("cm-5-1", "u-sarah", "brunson cooking rn", 2),
+        comment("cm-5-2", "u-max", "no defense bro be serious", 1),
+      ],
+      poll: poll(10, 7, "yes"),
+      sub_contracts: [
+        subContract("sc-5-1", "b-5", "u-marcus", "yes", 65, 2_500, 0, 18),
+      ],
+    },
+  },
+
+  // ── b-6: Noor bets YES on Taylor Swift album, fully filled, sub-contract ──
+  {
+    id: "b-6",
+    creator_id: "u-noor",
+    question: "Taylor Swift drops a surprise album before July 4",
+    category: "social",
+    yes_probability: 70,
+    stake_cents: 1_000,
+    expiry_at: hours(900),
+    resolution_notes: null,
+    status: "open",
+    scope: "friends",
+    group_id: null,
+    geo_lat: null, geo_lng: null, geo_radius_meters: null,
+    created_at: hoursAgo(6),
+    resolved_at: null,
+    creator: u("u-noor"),
+    participants: [
+      { id: "p-6-1", bet_id: "b-6", user_id: "u-noor", side: "yes", stake_cents: 1_000, stripe_payment_intent_id: null, paid_at: hoursAgo(6), outcome: null, user: u("u-noor") },
+    ],
+    contracts: [
+      contract("c-6-1", "b-6", "u-noor", "u-jay", 70, 1_000, 5),
+    ],
+    open_negotiations: [],
+    post_meta: {
+      relationship: relFor("u-noor", "friends", null),
+      poster_side: "yes",
+      original_filled_cents: 1_000,
+      reactions: [reaction("🎤", 9, true), reaction("💖", 4), reaction("😂", 3)],
+      comments: [
+        comment("cm-6-1", "u-sarah", "wishful thinking 💀", 5),
+        comment("cm-6-2", "u-jay", "didn't she literally just drop one", 4),
+      ],
+      poll: poll(11, 4, "yes"),
+      sub_contracts: [
+        subContract("sc-6-1", "b-6", "u-max", "no", 80, 1_000, 500, 90),
+      ],
+    },
+  },
+
+  // ── b-g1: You bet YES on Fed in Trading Floor group, partial, sub-contract ──
   {
     id: "b-g1",
     creator_id: "mock-me",
-    question: "Fed cuts rates by 50bps at next FOMC",
+    question: "Fed cuts rates by 50bps at the next FOMC",
     category: "finance",
     yes_probability: 30,
     stake_cents: 5_000,
@@ -337,18 +534,31 @@ export const MOCK_BETS: BetView[] = [
       { id: "p-g1-1", bet_id: "b-g1", user_id: "mock-me", side: "yes", stake_cents: 5_000, stripe_payment_intent_id: null, paid_at: hoursAgo(8), outcome: null, user: u("mock-me") },
     ],
     contracts: [
-      contract("c-g1-1", "b-g1", "mock-me", "u-ben", 30, 5_000, 6),
-      contract("c-g1-2", "b-g1", "mock-me", "u-max", 35, 2_500, 4),
+      contract("c-g1-1", "b-g1", "mock-me", "u-ben", 30, 2_000, 6),
+      contract("c-g1-2", "b-g1", "mock-me", "u-max", 30, 1_000, 4),
     ],
-    open_negotiations: [
-      negotiation("n-g1-1", "b-g1", "u-sarah", 20, 2_500, 90),
-      negotiation("n-g1-2", "b-g1", "u-ben",   25, 5_000, 240),
-    ],
+    open_negotiations: [],
+    post_meta: {
+      relationship: relFor("mock-me", "group", "g-trading"),
+      poster_side: "yes",
+      original_filled_cents: 3_000, // $30 of $50 filled
+      reactions: [reaction("📈", 5, true), reaction("💰", 3), reaction("🤡", 2)],
+      comments: [
+        comment("cm-g1-1", "u-ben", "powell has no spine", 5),
+        comment("cm-g1-2", "u-max", "lock in", 4),
+      ],
+      poll: poll(7, 14, null),
+      sub_contracts: [
+        subContract("sc-g1-1", "b-g1", "u-ben", "no", 25, 5_000, 2_500, 240),
+      ],
+    },
   },
+
+  // ── b-g2: Sarah bets YES on dish-breaking in EH7 House, partial, sub-contract ──
   {
     id: "b-g2",
     creator_id: "u-sarah",
-    question: "Someone breaks a dish at Friday dinner",
+    question: "Someone breaks a dish at Friday family dinner",
     category: "social",
     yes_probability: 75,
     stake_cents: 500,
@@ -365,18 +575,222 @@ export const MOCK_BETS: BetView[] = [
       { id: "p-g2-1", bet_id: "b-g2", user_id: "u-sarah", side: "yes", stake_cents: 500, stripe_payment_intent_id: null, paid_at: hoursAgo(3), outcome: null, user: u("u-sarah") },
     ],
     contracts: [
-      contract("c-g2-1", "b-g2", "u-sarah", "u-jay",  75, 500, 2),
-      contract("c-g2-2", "b-g2", "u-sarah", "u-noor", 70, 1_000, 1),
+      contract("c-g2-1", "b-g2", "u-sarah", "u-jay",  75, 300, 2),
     ],
-    open_negotiations: [
-      negotiation("n-g2-1", "b-g2", "mock-me", 80, 1_000, 45),
-    ],
+    open_negotiations: [],
+    post_meta: {
+      relationship: relFor("u-sarah", "group", "g-eh7"),
+      poster_side: "yes",
+      original_filled_cents: 300, // $3 of $5 filled
+      reactions: [reaction("🍽️", 6, true), reaction("💀", 4), reaction("😂", 5)],
+      comments: [
+        comment("cm-g2-1", "u-jay", "we don't even own real plates", 2),
+        comment("cm-g2-2", "u-noor", "happens every week istg", 1),
+      ],
+      poll: poll(9, 2, "yes"),
+      sub_contracts: [
+        subContract("sc-g2-1", "b-g2", "mock-me", "yes", 80, 1_000, 0, 45),
+      ],
+    },
   },
 ];
 
 /** Bets posted to a specific group (group feed). */
 export function mockBetsForGroup(groupId: string): BetView[] {
   return MOCK_BETS.filter((b) => b.group_id === groupId);
+}
+
+// ────────────────────────────────────────────────
+// Messaging — DMs + group chats. Auto-posted bets show up as bet messages
+// in their group's chat. DMs can have shared bets.
+// ────────────────────────────────────────────────
+function textMsg(
+  id: string,
+  conversationId: string,
+  senderId: string,
+  text: string,
+  minutesAgoNum: number,
+): ChatMessageView {
+  return {
+    id,
+    conversation_id: conversationId,
+    sender: u(senderId),
+    kind: "text",
+    text,
+    created_at: minutesAgo(minutesAgoNum),
+  };
+}
+
+function betMsg(
+  id: string,
+  conversationId: string,
+  senderId: string,
+  betId: string,
+  minutesAgoNum: number,
+): ChatMessageView {
+  return {
+    id,
+    conversation_id: conversationId,
+    sender: u(senderId),
+    kind: "bet",
+    bet_id: betId,
+    created_at: minutesAgo(minutesAgoNum),
+  };
+}
+
+/**
+ * Conversations indexed by id. DM ids look like "dm-<friendId>"; group chat
+ * ids match the group id directly (so a chat link can deep-link to the group).
+ */
+export const MOCK_CONVERSATIONS: Record<string, ConversationView> = {
+  "dm-u-max": {
+    id: "dm-u-max",
+    kind: "dm",
+    other_user: u("u-max"),
+    title: "Max T.",
+    unread_count: 0,
+  },
+  "dm-u-sarah": {
+    id: "dm-u-sarah",
+    kind: "dm",
+    other_user: u("u-sarah"),
+    title: "Sarah K.",
+    unread_count: 1,
+  },
+  "dm-u-noor": {
+    id: "dm-u-noor",
+    kind: "dm",
+    other_user: u("u-noor"),
+    title: "Noor A.",
+    unread_count: 2,
+  },
+  "dm-u-jay": {
+    id: "dm-u-jay",
+    kind: "dm",
+    other_user: u("u-jay"),
+    title: "Jay P.",
+    unread_count: 2,
+  },
+  "g-trading": {
+    id: "g-trading",
+    kind: "group",
+    group: mockGroupView(MOCK_GROUPS_DIRECTORY[0]),
+    title: "The Trading Floor",
+    unread_count: 0,
+  },
+  "g-eh7": {
+    id: "g-eh7",
+    kind: "group",
+    group: mockGroupView(MOCK_GROUPS_DIRECTORY[1]),
+    title: "EH7 House",
+    unread_count: 3,
+  },
+  "g-run": {
+    id: "g-run",
+    kind: "group",
+    group: mockGroupView(MOCK_GROUPS_DIRECTORY[2]),
+    title: "Sunday Run Club",
+    unread_count: 0,
+  },
+};
+
+/**
+ * Messages indexed by conversation id, oldest first.
+ * Group chats include the auto-posted bet card for any bet scoped to that
+ * group (b-g1 in Trading Floor, b-g2 in EH7 House). DMs include at least one
+ * shared bet card.
+ */
+export const MOCK_CHAT_MESSAGES: Record<string, ChatMessageView[]> = {
+  "dm-u-max": [
+    textMsg("m-dm-max-1", "dm-u-max", "u-max",   "yo did u see the goldman post lol", 18),
+    textMsg("m-dm-max-2", "dm-u-max", "mock-me", "literally", 17),
+    betMsg ("m-dm-max-3", "dm-u-max", "u-max",   "b-1", 16),
+    textMsg("m-dm-max-4", "dm-u-max", "u-max",   "praying for me 🙏", 14),
+    textMsg("m-dm-max-5", "dm-u-max", "mock-me", "if you don't get it i'm taking the $15", 12),
+  ],
+  "dm-u-sarah": [
+    textMsg("m-dm-sa-1", "dm-u-sarah", "u-sarah", "i'm starting the pushups challenge today", 320),
+    betMsg ("m-dm-sa-2", "dm-u-sarah", "u-sarah", "b-2", 318),
+    textMsg("m-dm-sa-3", "dm-u-sarah", "mock-me", "good luck 😬 don't blow your shoulders", 290),
+    textMsg("m-dm-sa-4", "dm-u-sarah", "u-sarah", "i'm dying already day 1", 60),
+  ],
+  "dm-u-noor": [
+    textMsg("m-dm-no-1", "dm-u-noor", "u-noor",  "wait you actually faded my BTC bet", 130),
+    textMsg("m-dm-no-2", "dm-u-noor", "mock-me", "told u 📉", 90),
+    betMsg ("m-dm-no-3", "dm-u-noor", "u-noor",  "b-4", 55),
+    textMsg("m-dm-no-4", "dm-u-noor", "u-noor",  "i hate u so much", 22),
+  ],
+  "dm-u-jay": [
+    textMsg("m-dm-jay-1", "dm-u-jay", "u-jay",   "rematch tomorrow?", 34),
+    textMsg("m-dm-jay-2", "dm-u-jay", "u-jay",   "if i win again we double", 30),
+    betMsg ("m-dm-jay-3", "dm-u-jay", "u-jay",   "b-3", 22),
+  ],
+  "g-trading": [
+    textMsg("m-g-tr-1", "g-trading", "u-ben",    "anyone catch the FOMC speech?", 540),
+    textMsg("m-g-tr-2", "g-trading", "u-max",    "powell looked terrified ngl", 510),
+    betMsg ("m-g-tr-3", "g-trading", "mock-me",  "b-g1", 480),
+    textMsg("m-g-tr-4", "g-trading", "u-max",    "lock in", 410),
+    textMsg("m-g-tr-5", "g-trading", "u-ben",    "i'm opening the other side", 360),
+    textMsg("m-g-tr-6", "g-trading", "mock-me",  "ben i can see u doing it rn", 300),
+  ],
+  "g-eh7": [
+    textMsg("m-g-eh-1", "g-eh7", "u-sarah",  "friday dinner squad assemble 🍝", 245),
+    betMsg ("m-g-eh-2", "g-eh7", "u-sarah",  "b-g2", 180),
+    textMsg("m-g-eh-3", "g-eh7", "u-jay",    "we don't even have real plates lmao", 120),
+    textMsg("m-g-eh-4", "g-eh7", "mock-me",  "i'm taking yes obv", 75),
+    textMsg("m-g-eh-5", "g-eh7", "u-noor",   "the bowls count as dishes", 30),
+    textMsg("m-g-eh-6", "g-eh7", "u-emma",   "wait who's cooking", 12),
+  ],
+  "g-run": [
+    textMsg("m-g-rn-1", "g-run", "u-emma",   "who's running sunday morning", 1440),
+    textMsg("m-g-rn-2", "g-run", "u-sarah",  "i'm in if it's not raining", 1380),
+    textMsg("m-g-rn-3", "g-run", "u-noor",   "we should bet on the average pace", 1320),
+  ],
+};
+
+/** All messages for a conversation, oldest first, with last_message attached. */
+export function mockMessagesFor(conversationId: string): ChatMessageView[] {
+  return MOCK_CHAT_MESSAGES[conversationId] ?? [];
+}
+
+export function mockConversationById(id: string): ConversationView | undefined {
+  const c = MOCK_CONVERSATIONS[id];
+  if (!c) return undefined;
+  const msgs = MOCK_CHAT_MESSAGES[id] ?? [];
+  return { ...c, last_message: msgs[msgs.length - 1] };
+}
+
+/** Inbox lists for the two tabs, ordered by last-message timestamp desc. */
+export function mockInboxFor(kind: "dm" | "group"): ConversationView[] {
+  return Object.values(MOCK_CONVERSATIONS)
+    .filter((c) => c.kind === kind)
+    .map((c) => mockConversationById(c.id)!)
+    .sort((a, b) => {
+      const ta = a.last_message?.created_at ?? "";
+      const tb = b.last_message?.created_at ?? "";
+      return tb.localeCompare(ta);
+    });
+}
+
+/**
+ * Bets the current user can share into a DM — anything they created or
+ * are participating in that's still live (open or locked).
+ */
+export function mockShareableBetsForCurrentUser(): BetView[] {
+  return MOCK_BETS.filter(
+    (b) =>
+      (b.creator_id === MOCK_CURRENT_USER.id ||
+        b.participants.some((p) => p.user_id === MOCK_CURRENT_USER.id) ||
+        (b.contracts ?? []).some(
+          (c) => c.yes_user_id === MOCK_CURRENT_USER.id || c.no_user_id === MOCK_CURRENT_USER.id,
+        )) &&
+      (b.status === "open" || b.status === "locked"),
+  );
+}
+
+/** Look up a bet referenced from a chat message. */
+export function mockBetById(id: string): BetView | undefined {
+  return MOCK_BETS.find((b) => b.id === id);
 }
 
 // ────────────────────────────────────────────────

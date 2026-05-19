@@ -10,14 +10,15 @@ export function AppShell({
 }: {
   title: string;
   unread?: number;
+  /** Surfaces as the badge on the clock icon in the top bar. */
   pendingCount?: number;
   children: ReactNode;
 }) {
   return (
     <>
-      <TopBar title={title} unread={unread} />
+      <TopBar title={title} unread={unread} pendingCount={pendingCount} />
       <main className="flex-1 pb-4">{children}</main>
-      <BottomNav pendingCount={pendingCount} />
+      <BottomNav />
     </>
   );
 }

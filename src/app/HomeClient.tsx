@@ -2,18 +2,23 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { BetCard } from "@/components/BetCard";
-import { BetDetailSheet } from "@/components/BetDetailSheet";
+import { PostCard } from "@/components/PostCard";
+import { FaydThatSheet } from "@/components/FaydThatSheet";
+import { StartNewContractSheet } from "@/components/StartNewContractSheet";
 import { Toast } from "@/components/Toast";
-import { currentLineFor, formatCents } from "@/lib/format";
+import { formatCents } from "@/lib/format";
 import type {
   BetSide,
   BetView,
   ContractView,
-  NegotiationView,
+  Reaction,
   StakeTierCents,
+  SubContractView,
   UserLite,
 } from "@/types/db";
+
+type FaydSheetState = { betId: string; subContractId: string | null } | null;
+type StartSheetState = { betId: string; initialYesProbability?: number } | null;
 
 export function HomeClient({
   bets: initialBets,
@@ -22,109 +27,76 @@ export function HomeClient({
   bets: BetView[];
   currentUser: UserLite;
 }) {
-  // Owns the bets state so accept-offer / make-offer feel live (mock-only).
   const [bets, setBets] = useState<BetView[]>(initialBets);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [faydSheet, setFaydSheet] = useState<FaydSheetState>(null);
+  const [startSheet, setStartSheet] = useState<StartSheetState>(null);
   const [toast, setToast] = useState<string | null>(null);
 
-  const selected = useMemo(
-    () => (selectedId ? bets.find((b) => b.id === selectedId) ?? null : null),
-    [bets, selectedId],
+  const faydBet = useMemo(
+    () => (faydSheet ? bets.find((b) => b.id === faydSheet.betId) ?? null : null),
+    [bets, faydSheet],
+  );
+  const faydSubContract = useMemo(() => {
+    if (!faydSheet?.subContractId || !faydBet?.post_meta) return null;
+    return faydBet.post_meta.sub_contracts.find((s) => s.id === faydSheet.subContractId) ?? null;
+  }, [faydBet, faydSheet]);
+  const startBet = useMemo(
+    () => (startSheet ? bets.find((b) => b.id === startSheet.betId) ?? null : null),
+    [bets, startSheet],
   );
 
-  function updateBet(betId: string, fn: (b: BetView) => BetView) {
-    setBets((prev) => prev.map((b) => (b.id === betId ? fn(b) : b)));
-  }
-
-  function onCardBet(bet: BetView, side: BetSide, stake: StakeTierCents) {
-    // Tap-to-bet from the card takes the OPPOSITE side at the current weighted line.
-    // (Tapping "YES" means: I think YES, so I want a contract where I'm YES.)
-    const line = currentLineFor(bet, bet.contracts ?? []);
-    const counterParty = bet.creator; // mock-only: the bet creator counters you.
-    const newContract: ContractView = {
-      id: `c-new-${Date.now()}`,
-      bet_id: bet.id,
-      yes_user_id: side === "yes" ? currentUser.id : counterParty.id,
-      no_user_id:  side === "yes" ? counterParty.id  : currentUser.id,
-      yes_probability: line.yesPercent,
-      stake_cents: stake,
-      negotiation_id: null,
-      status: "active",
-      yes_outcome: null,
-      created_at: new Date().toISOString(),
-      resolved_at: null,
-      yes_user: side === "yes" ? currentUser : counterParty,
-      no_user:  side === "yes" ? counterParty : currentUser,
-    };
-    updateBet(bet.id, (b) => ({ ...b, contracts: [newContract, ...(b.contracts ?? [])] }));
-    setToast(
-      `You took ${side.toUpperCase()} at ${line.yesPercent}% for ${formatCents(stake)}`,
-    );
-  }
-
-  function onAcceptOffer(bet: BetView, offer: NegotiationView) {
-    // Accept = create a contract opposite the proposer.
-    const newContract: ContractView = {
-      id: `c-from-${offer.id}`,
-      bet_id: bet.id,
-      yes_user_id: offer.proposer_id,
-      no_user_id: currentUser.id,
-      yes_probability: offer.proposed_yes_probability,
-      stake_cents: offer.stake_tier_cents,
-      negotiation_id: offer.id,
-      status: "active",
-      yes_outcome: null,
-      created_at: new Date().toISOString(),
-      resolved_at: null,
-      yes_user: offer.proposer,
-      no_user: currentUser,
-    };
-    updateBet(bet.id, (b) => ({
-      ...b,
-      contracts: [newContract, ...(b.contracts ?? [])],
-      open_negotiations: (b.open_negotiations ?? []).filter((n) => n.id !== offer.id),
-    }));
-    setToast(`Contract opened with ${offer.proposer.first_name} at ${offer.proposed_yes_probability}%`);
-  }
-
-  function onMakeOffer(bet: BetView, yesProb: number, tier: StakeTierCents) {
-    const newOffer: NegotiationView = {
-      id: `n-new-${Date.now()}`,
-      bet_id: bet.id,
-      proposer_id: currentUser.id,
-      proposed_yes_probability: yesProb,
-      stake_tier_cents: tier,
-      status: "open",
-      parent_negotiation_id: null,
-      created_at: new Date().toISOString(),
-      proposer: currentUser,
-    };
-    updateBet(bet.id, (b) => ({
-      ...b,
-      open_negotiations: [newOffer, ...(b.open_negotiations ?? [])],
-    }));
-    setToast(`Offer posted · YES ${yesProb}% for ${formatCents(tier)}`);
-  }
+  const handlers = makeHandlers({
+    currentUser,
+    setBets,
+    setToast,
+    openFayd: setFaydSheet,
+    openStart: setStartSheet,
+  });
 
   if (bets.length === 0) return <EmptyState />;
 
   return (
     <>
-      <ul className="flex flex-col gap-3 px-4 mt-4">
+      <ul className="flex flex-col gap-3 px-4 mt-4 pb-4">
         {bets.map((b) => (
           <li key={b.id}>
-            <BetCard bet={b} onOpen={() => setSelectedId(b.id)} onBet={onCardBet} />
+            <PostCard
+              bet={b}
+              currentUserId={currentUser.id}
+              onFaydThat={() => setFaydSheet({ betId: b.id, subContractId: null })}
+              onCounter={(bet) => setStartSheet({ betId: bet.id, initialYesProbability: bet.yes_probability })}
+              onComment={() => setToast("Comments coming soon")}
+              onStartNewContract={(bet) => setStartSheet({ betId: bet.id })}
+              onReact={handlers.onReact}
+              onVote={handlers.onVote}
+              onOpenSubContract={(bet, subContractId) =>
+                setFaydSheet({ betId: bet.id, subContractId })
+              }
+            />
           </li>
         ))}
       </ul>
 
-      <BetDetailSheet
-        bet={selected}
-        open={!!selected}
-        onClose={() => setSelectedId(null)}
-        currentUserId={currentUser.id}
-        onAcceptOffer={onAcceptOffer}
-        onMakeOffer={onMakeOffer}
+      <FaydThatSheet
+        open={!!faydSheet}
+        onClose={() => setFaydSheet(null)}
+        bet={faydBet}
+        subContract={faydSubContract}
+        onConfirm={(p) => {
+          handlers.onConfirmFill(p);
+          setFaydSheet(null);
+        }}
+      />
+
+      <StartNewContractSheet
+        open={!!startSheet}
+        onClose={() => setStartSheet(null)}
+        bet={startBet}
+        initialYesProbability={startSheet?.initialYesProbability}
+        onPost={(p) => {
+          handlers.onPostSubContract(p);
+          setStartSheet(null);
+        }}
       />
 
       {toast ? <Toast message={toast} onDone={() => setToast(null)} /> : null}
@@ -136,13 +108,202 @@ function EmptyState() {
   return (
     <div className="px-6 pt-16 text-center">
       <div className="text-5xl mb-3">🤝</div>
-      <h2 className="text-lg font-semibold mb-1">No bets yet</h2>
+      <h2 className="text-lg font-semibold mb-1">No posts yet</h2>
       <p className="text-text2 text-sm mb-6">
-        Friends' bets will show up here once you add some.
+        Bet posts from friends and groups will show up here.
       </p>
       <Link href="/create" className="inline-block bg-yes text-bg font-semibold px-5 py-3 rounded-input">
-        Create your first bet
+        Post a bet
       </Link>
     </div>
   );
+}
+
+// ────────────────────────────────────────────────
+// Handlers — all mock-only. Each mutates local state to keep the feed alive.
+// ────────────────────────────────────────────────
+export interface FeedHandlers {
+  onReact: (bet: BetView, emoji: string) => void;
+  onVote: (bet: BetView, side: BetSide) => void;
+  onConfirmFill: (params: {
+    bet: BetView;
+    subContractId: string | null;
+    side: BetSide;
+    amountCents: number;
+  }) => void;
+  onPostSubContract: (params: {
+    bet: BetView;
+    yesProbability: number;
+    posterSide: BetSide;
+    stakeCents: StakeTierCents;
+  }) => void;
+}
+
+export function makeHandlers({
+  currentUser,
+  setBets,
+  setToast,
+  openFayd,
+  openStart,
+}: {
+  currentUser: UserLite;
+  setBets: React.Dispatch<React.SetStateAction<BetView[]>>;
+  setToast: (msg: string | null) => void;
+  openFayd?: (s: FaydSheetState) => void;
+  openStart?: (s: StartSheetState) => void;
+}): FeedHandlers {
+  void openFayd;
+  void openStart;
+
+  function updateBet(betId: string, fn: (b: BetView) => BetView) {
+    setBets((prev) => prev.map((b) => (b.id === betId ? fn(b) : b)));
+  }
+
+  function onReact(bet: BetView, emoji: string) {
+    updateBet(bet.id, (b) => {
+      const meta = b.post_meta!;
+      const existing = meta.reactions.find((r) => r.emoji === emoji);
+      const next: Reaction[] = existing
+        ? meta.reactions.map((r) =>
+            r.emoji === emoji
+              ? { ...r, count: r.reactedByMe ? r.count - 1 : r.count + 1, reactedByMe: !r.reactedByMe }
+              : r,
+          ).filter((r) => r.count > 0)
+        : [...meta.reactions, { emoji, count: 1, reactedByMe: true }];
+      return { ...b, post_meta: { ...meta, reactions: next } };
+    });
+  }
+
+  function onVote(bet: BetView, side: BetSide) {
+    updateBet(bet.id, (b) => {
+      const meta = b.post_meta!;
+      const prev = meta.poll;
+      let { yes_votes, no_votes, my_vote } = prev;
+      // Undo previous vote if any.
+      if (my_vote === "yes") yes_votes--;
+      if (my_vote === "no") no_votes--;
+      // Toggle: same side again clears the vote.
+      if (my_vote === side) {
+        my_vote = null;
+      } else {
+        my_vote = side;
+        if (side === "yes") yes_votes++; else no_votes++;
+      }
+      return { ...b, post_meta: { ...meta, poll: { yes_votes, no_votes, my_vote } } };
+    });
+  }
+
+  function onConfirmFill(params: {
+    bet: BetView;
+    subContractId: string | null;
+    side: BetSide;
+    amountCents: number;
+  }) {
+    const { bet, subContractId, side, amountCents } = params;
+    if (subContractId) {
+      // Filling a sub-contract.
+      updateBet(bet.id, (b) => {
+        const meta = b.post_meta!;
+        const sub = meta.sub_contracts.find((s) => s.id === subContractId);
+        if (!sub) return b;
+        const newFilled = Math.min(sub.stake_cents, sub.filled_cents + amountCents);
+        const newSubs = meta.sub_contracts.map((s) =>
+          s.id === subContractId ? { ...s, filled_cents: newFilled } : s,
+        );
+        const newContract = buildContract({
+          id: `c-sub-${sub.id}-${Date.now()}`,
+          betId: bet.id,
+          posterUser: sub.poster,
+          posterSide: sub.poster_side,
+          counterUser: currentUser,
+          counterSide: side,
+          yesProb: sub.yes_probability,
+          stakeCents: amountCents,
+        });
+        return {
+          ...b,
+          contracts: [newContract, ...(b.contracts ?? [])],
+          post_meta: { ...meta, sub_contracts: newSubs },
+        };
+      });
+      setToast(`Filled ${formatCents(amountCents)} on ${side.toUpperCase()}`);
+      return;
+    }
+    // Filling the original line.
+    updateBet(bet.id, (b) => {
+      const meta = b.post_meta!;
+      const cappedAmount = Math.min(amountCents, b.stake_cents - meta.original_filled_cents);
+      const newContract = buildContract({
+        id: `c-orig-${b.id}-${Date.now()}`,
+        betId: b.id,
+        posterUser: b.creator,
+        posterSide: meta.poster_side,
+        counterUser: currentUser,
+        counterSide: side,
+        yesProb: b.yes_probability,
+        stakeCents: cappedAmount,
+      });
+      return {
+        ...b,
+        contracts: [newContract, ...(b.contracts ?? [])],
+        post_meta: { ...meta, original_filled_cents: meta.original_filled_cents + cappedAmount },
+      };
+    });
+    setToast(`Filled ${formatCents(amountCents)} on ${side.toUpperCase()}`);
+  }
+
+  function onPostSubContract(params: {
+    bet: BetView;
+    yesProbability: number;
+    posterSide: BetSide;
+    stakeCents: StakeTierCents;
+  }) {
+    const { bet, yesProbability, posterSide, stakeCents } = params;
+    updateBet(bet.id, (b) => {
+      const meta = b.post_meta!;
+      const newSub: SubContractView = {
+        id: `sc-new-${Date.now()}`,
+        bet_id: bet.id,
+        poster: currentUser,
+        poster_side: posterSide,
+        yes_probability: yesProbability,
+        stake_cents: stakeCents,
+        filled_cents: 0,
+        created_at: new Date().toISOString(),
+      };
+      return { ...b, post_meta: { ...meta, sub_contracts: [newSub, ...meta.sub_contracts] } };
+    });
+    setToast(`Posted · ${posterSide.toUpperCase()} @ ${yesProbability}% for ${formatCents(stakeCents)}`);
+  }
+
+  return { onReact, onVote, onConfirmFill, onPostSubContract };
+}
+
+function buildContract(args: {
+  id: string;
+  betId: string;
+  posterUser: UserLite;
+  posterSide: BetSide;
+  counterUser: UserLite;
+  counterSide: BetSide;
+  yesProb: number;
+  stakeCents: number;
+}): ContractView {
+  const yesUser = args.posterSide === "yes" ? args.posterUser : args.counterUser;
+  const noUser  = args.posterSide === "yes" ? args.counterUser : args.posterUser;
+  return {
+    id: args.id,
+    bet_id: args.betId,
+    yes_user_id: yesUser.id,
+    no_user_id: noUser.id,
+    yes_probability: args.yesProb,
+    stake_cents: args.stakeCents,
+    negotiation_id: null,
+    status: "active",
+    yes_outcome: null,
+    created_at: new Date().toISOString(),
+    resolved_at: null,
+    yes_user: yesUser,
+    no_user: noUser,
+  };
 }

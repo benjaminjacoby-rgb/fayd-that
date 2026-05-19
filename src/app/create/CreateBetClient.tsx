@@ -19,7 +19,7 @@ import type { BetCategory, BetScope, GroupRow, StakeTierCents, UserRow } from "@
 
 const CATEGORIES: BetCategory[] = ["fitness", "academics", "social", "finance", "other"];
 
-type EscrowMode = "betme" | "mediator";
+type EscrowMode = "fayd" | "mediator";
 
 export function CreateBetClient({
   walletCents,
@@ -40,7 +40,7 @@ export function CreateBetClient({
   const [groupId, setGroupId] = useState<string | null>(null);
   const [radius, setRadius] = useState<number>(500);
   const [targetFriendIds, setTargetFriendIds] = useState<string[]>([]);
-  const [escrow, setEscrow] = useState<EscrowMode>("betme");
+  const [escrow, setEscrow] = useState<EscrowMode>("fayd");
   const [mediatorId, setMediatorId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -120,7 +120,7 @@ export function CreateBetClient({
           max={MAX_PROBABILITY}
           value={yesProbability}
           onChange={(e) => setYesProbability(parseInt(e.target.value, 10))}
-          className="betme-slider"
+          className="fayd-slider"
         />
         <div className="grid grid-cols-2 gap-2 mt-3">
           <PreviewBox color="yes" label="If YES, you win" value={formatCents(payouts.ifYesWinsCents)} />
@@ -225,7 +225,7 @@ export function CreateBetClient({
 
       <Section label="Escrow">
         <div className="grid grid-cols-2 gap-2">
-          <ScopeOption active={escrow === "betme"} onClick={() => setEscrow("betme")} label="BetME holds" />
+          <ScopeOption active={escrow === "fayd"} onClick={() => setEscrow("fayd")} label="Fayd holds" />
           <ScopeOption active={escrow === "mediator"} onClick={() => setEscrow("mediator")} label="Mediator" />
         </div>
         {escrow === "mediator" ? (
