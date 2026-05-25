@@ -5,11 +5,11 @@ import { formatCents } from "@/lib/format";
 export function TopBar({
   title,
   unread = 0,
-  pendingCount = 0,
   walletCents,
 }: {
   title: string;
   unread?: number;
+  /** Accepted but no longer rendered; kept for prop compatibility. */
   pendingCount?: number;
   /** When provided, surfaces the wallet balance to the left of the messages + notifications buttons. */
   walletCents?: number;
@@ -25,9 +25,7 @@ export function TopBar({
             <span className="text-sm font-mono text-text2">
               Balance <span className="text-text font-semibold">{formatCents(walletCents!)}</span>
             </span>
-          ) : (
-            <PendingClockButton count={pendingCount} />
-          )}
+          ) : null}
           {/* The rightmost two buttons must always be Messages then Notifications. */}
           <MessagesButton />
           <NotificationBell count={unread} />
@@ -59,30 +57,3 @@ function MessagesButton() {
   );
 }
 
-function PendingClockButton({ count }: { count: number }) {
-  return (
-    <Link
-      href="/pending"
-      aria-label="Pending bets"
-      className="relative w-9 h-9 rounded-pill bg-bg3 inline-flex items-center justify-center text-text2 hover:text-text"
-    >
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className="w-5 h-5"
-      >
-        <circle cx="12" cy="12" r="9" />
-        <path d="M12 7v5l3 2" />
-      </svg>
-      {count > 0 ? (
-        <span className="absolute -top-1 -right-1 bg-no text-bg text-[10px] font-bold rounded-pill px-1.5 py-px min-w-[18px] text-center">
-          {count > 99 ? "99+" : count}
-        </span>
-      ) : null}
-    </Link>
-  );
-}

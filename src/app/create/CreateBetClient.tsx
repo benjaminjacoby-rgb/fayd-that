@@ -166,6 +166,8 @@ export function CreateBetClient({
             mediator: mediatorState,
             end_at: null,
             concluded: false,
+            target_friend_ids:
+              scope === "friends" && targetFriendIds.length > 0 ? targetFriendIds : undefined,
           },
         };
         addMyPost(newBet);

@@ -68,11 +68,6 @@ function pickMain(list: ContractEntry[]): ContractEntry {
   return sorted.find((c) => c.filled_cents < c.stake_cents) ?? sorted[0];
 }
 
-/** Exactly-2-decimal dollar format ($1.00, $8.57). */
-function formatDollars2dp(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
-}
-
 /** Strip the leading "from " from a group relationship label. */
 function groupNameFromMeta(label: string): string {
   return label.replace(/^from\s+/i, "").trim();
@@ -129,13 +124,6 @@ export function PostCard({
   const posterOdds = posterSide === "yes" ? main.yes_probability : 100 - main.yes_probability;
   const takerOdds = 100 - posterOdds;
 
-  // Max counter stake — what the opposing side can put up to match the poster.
-  // maxBet = (posterStake × counterOdds) / posterOdds
-  const maxBetCents = posterOdds > 0
-    ? Math.round((main.stake_cents * takerOdds) / posterOdds)
-    : 0;
-  const minBetCents = 100; // $1.00 floor
-
   // Filled = no more room on the main contract.
   const fullyFilled = mainRemainingCents === 0;
 
@@ -145,6 +133,11 @@ export function PostCard({
     bet.scope === "group" && bet.group_id && meta.relationship.kind === "group"
       ? groupNameFromMeta(meta.relationship.label)
       : null;
+
+  // "Sent to N friends" pill — only when the bet was targeted to a specific
+  // subset of friends (not a group post, not a broadcast to all friends).
+  const targetedFriendCount =
+    bet.scope === "friends" && !bet.group_id ? meta.target_friend_ids?.length ?? 0 : 0;
 
   const subtitleParts: string[] = [];
   if (bet.creator.username) subtitleParts.push(`@${bet.creator.username}`);
@@ -192,7 +185,7 @@ export function PostCard({
             {formatCents(bet.stake_cents)}
           </div>
           <div className="text-text3 text-[10px] uppercase tracking-wide mt-0.5">
-            Max staked
+            Staked
           </div>
         </div>
         <div className="relative shrink-0 -mr-1">
@@ -268,6 +261,15 @@ export function PostCard({
         </div>
       ) : null}
 
+      {/* ── "Sent to N friends" pill ───────────────────────────────────── */}
+      {targetedFriendCount > 0 ? (
+        <div className="px-4 pb-3">
+          <span className="inline-flex items-center gap-1 bg-bg3 text-text2 text-[10px] font-medium rounded-pill px-2 py-0.5">
+            Sent to {targetedFriendCount} {targetedFriendCount === 1 ? "friend" : "friends"}
+          </span>
+        </div>
+      ) : null}
+
       {/* ── Body block (only while there's still actionable side) ──────── */}
       {!fullyFilled && !expired && !concluded ? (
         <div className="px-4 pb-3 flex flex-col gap-3">
@@ -289,26 +291,6 @@ export function PostCard({
             at <span className="font-mono tabular-nums">{takerOdds}%</span>
           </div>
 
-          {/* YOUR SIDE block — deep red bg, red border */}
-          <div className="bg-[#1a0d0d] border border-no/30 rounded-input px-3 py-2.5 flex items-center justify-between">
-            <div>
-              <div className="text-[10px] uppercase tracking-wide text-text3 font-semibold">
-                Your side
-              </div>
-              <div className={`text-base font-bold mt-0.5 ${takerSide === "yes" ? "text-yes" : "text-no"}`}>
-                {takerSide.toUpperCase()}
-              </div>
-            </div>
-            <div className={`text-2xl font-bold font-mono tabular-nums ${takerSide === "yes" ? "text-yes" : "text-no"}`}>
-              {takerOdds}%
-            </div>
-          </div>
-
-          {/* Min bet / Max bet pair */}
-          <div className="grid grid-cols-2 gap-2">
-            <StatBox label="Min bet" value={formatDollars2dp(minBetCents)} />
-            <StatBox label="Max bet" value={formatDollars2dp(maxBetCents)} />
-          </div>
         </div>
       ) : null}
 
@@ -508,19 +490,6 @@ export function PostCard({
         </div>
       </div>
     </article>
-  );
-}
-
-function StatBox({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="bg-[#0d0d0d] border border-[#222] rounded-input px-3 py-2">
-      <div className="text-[10px] uppercase tracking-wide text-text3 font-semibold">
-        {label}
-      </div>
-      <div className="font-mono font-bold tabular-nums text-no text-lg mt-0.5">
-        {value}
-      </div>
-    </div>
   );
 }
 

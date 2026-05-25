@@ -247,6 +247,12 @@ export interface PostMeta {
   end_at?: string | null;
   /** True once the poster or mediator has manually marked the bet concluded. */
   concluded?: boolean;
+  /**
+   * When the bet was sent to a specific subset of friends (audience_type =
+   * 'specific_friends'), the ids of those targeted recipients. Empty/undefined
+   * for "all friends" broadcasts and for group posts.
+   */
+  target_friend_ids?: string[];
 }
 
 // ────────────────────────────────────────────────
