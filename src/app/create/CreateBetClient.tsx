@@ -105,11 +105,13 @@ export function CreateBetClient({
   // Payout if correct = your stake + the counterparty stake matched against you.
   // No platform fee.
   const payoutIfCorrectCents = useMemo(() => {
-    const posterFrac =
-      posterSide === "yes" ? yesProbability / 100 : (100 - yesProbability) / 100;
-    const counterFrac = 1 - posterFrac;
-    if (counterFrac <= 0 || counterFrac >= 1) return 0;
-    return Math.round(stakeCents / counterFrac);
+    const p = yesProbability / 100;
+    // Probability the poster's side wins.
+    const winProb = posterSide === "yes" ? p : 1 - p;
+    if (winProb <= 0 || winProb >= 1) return 0;
+    // Fair odds: counterparty stakes stake*(1-winProb)/winProb so EV=0.
+    // Payout if poster wins = own stake + counterparty stake = stake / winProb.
+    return Math.round(stakeCents / winProb);
   }, [stakeCents, yesProbability, posterSide]);
 
   const canSubmit =
