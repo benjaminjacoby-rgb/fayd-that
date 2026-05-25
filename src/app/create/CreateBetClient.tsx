@@ -14,6 +14,7 @@ import {
   USE_MOCK_DATA,
 } from "@/lib/config";
 import { formatCents, fullName } from "@/lib/format";
+import { createBet } from "@/lib/data/betsClient";
 import { addChatMessage, addMyPost } from "@/lib/sessionState";
 import type {
   BetCategory,
@@ -180,24 +181,26 @@ export function CreateBetClient({
         router.push("/");
         return;
       }
-      const res = await fetch("/api/bets", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          question: question.trim(),
-          category,
-          yes_probability: yesProbability,
-          stake_cents: stakeCents,
-          expiry_at,
-          scope,
-          group_id: scope === "group" ? groupId : null,
-          geo_radius_meters: scope === "geo" ? radius : null,
-          mediator_id: null,
-          target_friend_ids: targetFriendIds,
-          poster_side: posterSide,
-        }),
+      const mediatorType: "none" | "self" | "requested" =
+        effectiveMediatorChoice === "self"
+          ? "self"
+          : effectiveMediatorChoice === "request"
+            ? "requested"
+            : "none";
+      await createBet({
+        question: question.trim(),
+        category,
+        yes_probability: yesProbability,
+        stake_cents: stakeCents,
+        expiry_at,
+        scope,
+        group_id: scope === "group" ? groupId : null,
+        geo_radius_meters: scope === "geo" ? radius : null,
+        mediator_id: null,
+        target_friend_ids: targetFriendIds,
+        poster_side: posterSide,
+        mediator_type: mediatorType,
       });
-      if (!res.ok) throw new Error(await res.text());
       router.push("/");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to create bet");
