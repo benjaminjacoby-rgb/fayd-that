@@ -11,7 +11,7 @@ export function TopBar({
   title: string;
   unread?: number;
   pendingCount?: number;
-  /** When provided, replaces the bell + clock on the right with a Balance display + Messages button (home screen). */
+  /** When provided, surfaces the wallet balance to the left of the messages + notifications buttons. */
   walletCents?: number;
 }) {
   const homeMode = typeof walletCents === "number";
@@ -22,18 +22,15 @@ export function TopBar({
         <h1 className="text-lg font-bold tracking-tight">{title}</h1>
         <div className="flex items-center gap-2">
           {homeMode ? (
-            <>
-              <span className="text-sm font-mono text-text2">
-                Balance <span className="text-text font-semibold">{formatCents(walletCents!)}</span>
-              </span>
-              <MessagesButton />
-            </>
+            <span className="text-sm font-mono text-text2">
+              Balance <span className="text-text font-semibold">{formatCents(walletCents!)}</span>
+            </span>
           ) : (
-            <>
-              <PendingClockButton count={pendingCount} />
-              <NotificationBell count={unread} />
-            </>
+            <PendingClockButton count={pendingCount} />
           )}
+          {/* The rightmost two buttons must always be Messages then Notifications. */}
+          <MessagesButton />
+          <NotificationBell count={unread} />
         </div>
       </div>
     </header>

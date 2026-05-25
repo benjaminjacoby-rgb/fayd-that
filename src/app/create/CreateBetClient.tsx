@@ -1,25 +1,24 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Avatar } from "@/components/Avatar";
 import { Button } from "@/components/ui/Button";
 import { Pill } from "@/components/ui/Pill";
 import {
   DEFAULT_STAKE_TIER,
-  EXPIRY_PRESETS,
   GEO_RADIUS_OPTIONS_M,
   MAX_PROBABILITY,
   MIN_PROBABILITY,
   STAKE_TIERS,
   USE_MOCK_DATA,
 } from "@/lib/config";
-import { formatCents, fullName, payoutPreview } from "@/lib/format";
+import { formatCents, fullName } from "@/lib/format";
 import { addChatMessage, addMyPost } from "@/lib/sessionState";
-import { insertNotification } from "@/lib/data/notificationsClient";
 import type {
   BetCategory,
   BetScope,
+  BetSide,
   BetView,
   ChatMessageView,
   GroupRow,
@@ -30,9 +29,22 @@ import type {
 } from "@/types/db";
 
 const CATEGORIES: BetCategory[] = ["fitness", "academics", "social", "finance", "other"];
+const VALID_CATEGORIES = new Set<BetCategory>(CATEGORIES);
 
-type EscrowMode = "fayd" | "mediator";
 type MediatorChoice = "none" | "self" | "request";
+
+function snapToStakeTier(cents: number): StakeTierCents {
+  let best: StakeTierCents = DEFAULT_STAKE_TIER;
+  let bestDiff = Infinity;
+  for (const tier of STAKE_TIERS) {
+    const d = Math.abs(tier - cents);
+    if (d < bestDiff) {
+      bestDiff = d;
+      best = tier;
+    }
+  }
+  return best;
+}
 
 export function CreateBetClient({
   walletCents,
@@ -46,19 +58,35 @@ export function CreateBetClient({
   currentUser: UserLite;
 }) {
   const router = useRouter();
-  const [question, setQuestion] = useState("");
-  const [category, setCategory] = useState<BetCategory>("social");
-  const [yesProbability, setYesProbability] = useState(50);
-  const [stakeTier, setStakeTier] = useState<StakeTierCents>(DEFAULT_STAKE_TIER);
-  const [expiryHours, setExpiryHours] = useState(24);
+  const searchParams = useSearchParams();
+
+  // Pre-fill from query string (used by "Duplicate" on a post card).
+  const initialQuestion = searchParams.get("q") ?? "";
+  const qCategory = searchParams.get("category");
+  const initialCategory: BetCategory =
+    qCategory && VALID_CATEGORIES.has(qCategory as BetCategory)
+      ? (qCategory as BetCategory)
+      : "social";
+  const qYesProb = Number(searchParams.get("yes_probability"));
+  const initialYesProb =
+    Number.isFinite(qYesProb) && qYesProb >= MIN_PROBABILITY && qYesProb <= MAX_PROBABILITY
+      ? qYesProb
+      : 50;
+  const qStake = Number(searchParams.get("stake_cents"));
+  const initialStake: StakeTierCents = Number.isFinite(qStake) && qStake > 0
+    ? snapToStakeTier(qStake)
+    : DEFAULT_STAKE_TIER;
+
+  const [question, setQuestion] = useState(initialQuestion);
+  const [category, setCategory] = useState<BetCategory>(initialCategory);
+  const [yesProbability, setYesProbability] = useState(initialYesProb);
+  const [stakeTier, setStakeTier] = useState<StakeTierCents>(initialStake);
+  const [posterSide, setPosterSide] = useState<BetSide>("yes");
   const [scope, setScope] = useState<BetScope>("friends");
   const [groupId, setGroupId] = useState<string | null>(null);
   const [radius, setRadius] = useState<number>(500);
   const [targetFriendIds, setTargetFriendIds] = useState<string[]>([]);
-  const [escrow, setEscrow] = useState<EscrowMode>("fayd");
-  const [mediatorId, setMediatorId] = useState<string | null>(null);
   const [mediatorChoice, setMediatorChoice] = useState<MediatorChoice>("none");
-  const [endAt, setEndAt] = useState<string>(""); // local datetime-input value
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -72,20 +100,29 @@ export function CreateBetClient({
     (scope === "friends" && targetFriendIds.length > 2);
 
   const stakeCents = stakeTier;
-  const payouts = useMemo(() => payoutPreview(stakeCents, yesProbability), [stakeCents, yesProbability]);
+
+  // Payout if correct = your stake + the counterparty stake matched against you.
+  // No platform fee.
+  const payoutIfCorrectCents = useMemo(() => {
+    const posterFrac =
+      posterSide === "yes" ? yesProbability / 100 : (100 - yesProbability) / 100;
+    const counterFrac = 1 - posterFrac;
+    if (counterFrac <= 0 || counterFrac >= 1) return 0;
+    return Math.round(stakeCents / counterFrac);
+  }, [stakeCents, yesProbability, posterSide]);
 
   const canSubmit =
     question.trim().length > 4 &&
     stakeCents > 0 &&
     stakeCents <= walletCents &&
-    (scope !== "group" || !!groupId) &&
-    (escrow !== "mediator" || !!mediatorId);
+    (scope !== "group" || !!groupId);
 
   async function submit() {
     setError(null);
     setBusy(true);
     try {
-      const expiry_at = new Date(Date.now() + expiryHours * 3600_000).toISOString();
+      // Default expiry kept for backend compatibility (24h).
+      const expiry_at = new Date(Date.now() + 24 * 3600_000).toISOString();
       const effectiveMediatorChoice: MediatorChoice = showMediatorPicker ? mediatorChoice : "none";
       const mediatorState: MediatorState | undefined =
         effectiveMediatorChoice === "self"
@@ -93,11 +130,7 @@ export function CreateBetClient({
           : effectiveMediatorChoice === "request"
             ? { mode: "requested" }
             : undefined;
-      const endAtIso = endAt ? new Date(endAt).toISOString() : null;
       if (USE_MOCK_DATA) {
-        // Seed the session store so the new bet shows up immediately on:
-        //   - the Pending page (My Posts section)
-        //   - the corresponding group chat (auto-posted as a bet card)
         const newBet: BetView = {
           id: `b-new-${Date.now()}`,
           creator_id: currentUser.id,
@@ -121,14 +154,14 @@ export function CreateBetClient({
           open_negotiations: [],
           post_meta: {
             relationship: { kind: "self", label: "You" },
-            poster_side: "yes",
+            poster_side: posterSide,
             original_filled_cents: 0,
             reactions: [],
             comments: [],
             poll: { yes_votes: 0, no_votes: 0, my_vote: null },
             sub_contracts: [],
             mediator: mediatorState,
-            end_at: endAtIso,
+            end_at: null,
             concluded: false,
           },
         };
@@ -147,17 +180,6 @@ export function CreateBetClient({
         router.push("/");
         return;
       }
-      // Best-effort: notify the assigned mediator. Fires regardless of whether
-      // the bet-create API call below succeeds — the actual mediator-assigned
-      // event should ideally be emitted by a DB trigger once that API exists.
-      if (escrow === "mediator" && mediatorId) {
-        void insertNotification({
-          userId: mediatorId,
-          type: "mediator_assigned",
-          referenceType: "bet",
-        });
-      }
-      // TODO: wire this to a server action that calls createBet() + holdStakeForBet().
       const res = await fetch("/api/bets", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -170,8 +192,9 @@ export function CreateBetClient({
           scope,
           group_id: scope === "group" ? groupId : null,
           geo_radius_meters: scope === "geo" ? radius : null,
-          mediator_id: escrow === "mediator" ? mediatorId : null,
+          mediator_id: null,
           target_friend_ids: targetFriendIds,
+          poster_side: posterSide,
         }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -214,11 +237,6 @@ export function CreateBetClient({
           onChange={(e) => setYesProbability(parseInt(e.target.value, 10))}
           className="fayd-slider"
         />
-        <div className="grid grid-cols-2 gap-2 mt-3">
-          <PreviewBox color="yes" label="If YES, you win" value={formatCents(payouts.ifYesWinsCents)} />
-          <PreviewBox color="no" label="If NO, you win" value={formatCents(payouts.ifNoWinsCents)} />
-        </div>
-        <div className="text-[11px] text-text3 mt-2">Pot of {formatCents(payouts.potCents)} after both sides stake.</div>
       </Section>
 
       <Section label={`Your stake · wallet ${formatCents(walletCents)}`}>
@@ -232,18 +250,15 @@ export function CreateBetClient({
         {stakeCents > walletCents ? (
           <p className="text-no text-xs mt-1">Stake exceeds wallet balance.</p>
         ) : null}
-        <p className="text-text3 text-[11px] mt-2">
-          Fixed tiers so contracts always match — same on both sides.
-        </p>
       </Section>
 
-      <Section label="Expiry">
-        <div className="flex gap-2 flex-wrap">
-          {EXPIRY_PRESETS.map((e) => (
-            <Pill key={e.hours} active={expiryHours === e.hours} onClick={() => setExpiryHours(e.hours)}>
-              {e.label}
-            </Pill>
-          ))}
+      <Section label="Your position">
+        <div className="grid grid-cols-2 gap-2">
+          <ScopeOption active={posterSide === "yes"} onClick={() => setPosterSide("yes")} label="YES" />
+          <ScopeOption active={posterSide === "no"}  onClick={() => setPosterSide("no")}  label="NO" />
+        </div>
+        <div className="text-sm text-text2 mt-2">
+          Payout if correct: <span className="font-mono font-semibold text-yes">{formatCents(payoutIfCorrectCents)}</span>
         </div>
       </Section>
 
@@ -315,29 +330,6 @@ export function CreateBetClient({
         </Section>
       ) : null}
 
-      <Section label="Escrow">
-        <div className="grid grid-cols-2 gap-2">
-          <ScopeOption active={escrow === "fayd"} onClick={() => setEscrow("fayd")} label="Fayd holds" />
-          <ScopeOption active={escrow === "mediator"} onClick={() => setEscrow("mediator")} label="Mediator" />
-        </div>
-        {escrow === "mediator" ? (
-          friends.length > 0 ? (
-            <select
-              value={mediatorId ?? ""}
-              onChange={(e) => setMediatorId(e.target.value || null)}
-              className="mt-3 bg-bg3 rounded-input px-3 py-2.5 w-full outline-none"
-            >
-              <option value="">Pick a mediator…</option>
-              {friends.map((f) => (
-                <option key={f.id} value={f.id}>{fullName(f)}</option>
-              ))}
-            </select>
-          ) : (
-            <p className="text-text3 text-xs mt-3">Add friends to assign a mediator.</p>
-          )
-        ) : null}
-      </Section>
-
       {showMediatorPicker ? (
         <Section label="Select mediator">
           <div className="grid grid-cols-2 gap-2">
@@ -361,24 +353,6 @@ export function CreateBetClient({
           </p>
         </Section>
       ) : null}
-
-      <Section label="Set end date (optional)">
-        <input
-          type="datetime-local"
-          value={endAt}
-          onChange={(e) => setEndAt(e.target.value)}
-          className="bg-bg3 rounded-input px-3 py-2.5 w-full outline-none focus:ring-2 focus:ring-yes/40 text-sm"
-        />
-        {endAt ? (
-          <button
-            type="button"
-            onClick={() => setEndAt("")}
-            className="text-text3 text-[11px] mt-2 hover:text-text2"
-          >
-            Clear end date
-          </button>
-        ) : null}
-      </Section>
 
       {error && <div className="text-no text-sm">{error}</div>}
 
@@ -408,14 +382,5 @@ function ScopeOption({ active, onClick, label }: { active: boolean; onClick: () 
     >
       {label}
     </button>
-  );
-}
-
-function PreviewBox({ color, label, value }: { color: "yes" | "no"; label: string; value: string }) {
-  return (
-    <div className={`rounded-input px-3 py-2 ${color === "yes" ? "bg-yes/10" : "bg-no/10"}`}>
-      <div className={`text-[10px] uppercase tracking-wide ${color === "yes" ? "text-yes" : "text-no"}`}>{label}</div>
-      <div className={`font-mono font-semibold ${color === "yes" ? "text-yes" : "text-no"}`}>{value}</div>
-    </div>
   );
 }

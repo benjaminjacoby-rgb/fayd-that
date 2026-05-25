@@ -19,8 +19,14 @@ export function PendingClient({ currentUser: _currentUser }: { currentUser: User
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
-  const actives: PendingContractView[] = mounted ? getMyActiveContracts() : [];
-  const posts: MyPostView[] = mounted ? getMyPosts() : [];
+  // Only show items created this session — the pre-seeded mock fixtures are
+  // intentionally hidden so the tab reflects real activity (or an empty state).
+  const actives: PendingContractView[] = mounted
+    ? getMyActiveContracts().filter((a) => a.source === "session")
+    : [];
+  const posts: MyPostView[] = mounted
+    ? getMyPosts().filter((p) => p.source === "session")
+    : [];
 
   if (mounted && actives.length === 0 && posts.length === 0) {
     return <EmptyState />;
@@ -168,7 +174,7 @@ function EmptyState() {
   return (
     <div className="px-6 pt-16 text-center">
       <div className="text-5xl mb-3">⏳</div>
-      <h2 className="text-lg font-semibold mb-1">No pending activity</h2>
+      <h2 className="text-lg font-semibold mb-1">No pending bets</h2>
       <p className="text-text2 text-sm mb-6">
         Bets you join or post will show up here.
       </p>

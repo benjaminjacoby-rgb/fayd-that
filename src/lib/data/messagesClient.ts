@@ -14,6 +14,93 @@ interface DbMessage {
 }
 
 /**
+ * Find or create a conversation containing exactly the signed-in user and the
+ * given friends (no extras, no missing). Single friend → type=direct; multiple
+ * friends → type=group with group_id=null (ad-hoc multi-party chat). Real
+ * group-backed chats (group_id IS NOT NULL) are excluded from the match so we
+ * don't accidentally hijack them.
+ */
+export async function getOrCreateConversationWithFriends(friendIds: string[]): Promise<string> {
+  const supabase = createClient();
+  const {
+    data: { user: authUser },
+  } = await supabase.auth.getUser();
+  if (!authUser) throw new Error("Not authenticated");
+  if (friendIds.length === 0) throw new Error("Pick at least one friend");
+
+  const targetIds = new Set<string>([authUser.id, ...friendIds]);
+
+  // 1. Conversations the current user is in.
+  const { data: myConvRows, error: pErr } = await supabase
+    .from("conversation_participants")
+    .select("conversation_id")
+    .eq("user_id", authUser.id);
+  if (pErr) throw pErr;
+  const myConvIds = (myConvRows ?? [])
+    .map((r) => r.conversation_id)
+    .filter((x): x is string => !!x);
+
+  if (myConvIds.length) {
+    // 2. Filter to ad-hoc convos (group_id IS NULL) — real-group chats are
+    //    distinct and shouldn't be reused for an ad-hoc DM/group.
+    const { data: convosRes, error: cErr } = await supabase
+      .from("conversations")
+      .select("id, group_id")
+      .in("id", myConvIds);
+    if (cErr) throw cErr;
+    const adhocIds = (convosRes ?? [])
+      .filter((c) => !c.group_id)
+      .map((c) => c.id);
+
+    if (adhocIds.length) {
+      const { data: allParts, error: apErr } = await supabase
+        .from("conversation_participants")
+        .select("conversation_id, user_id")
+        .in("conversation_id", adhocIds);
+      if (apErr) throw apErr;
+      const byConv = new Map<string, Set<string>>();
+      for (const p of allParts ?? []) {
+        if (!p.conversation_id || !p.user_id) continue;
+        const set = byConv.get(p.conversation_id) ?? new Set<string>();
+        set.add(p.user_id);
+        byConv.set(p.conversation_id, set);
+      }
+      for (const [cid, set] of byConv) {
+        if (set.size !== targetIds.size) continue;
+        let allMatch = true;
+        for (const id of targetIds) {
+          if (!set.has(id)) {
+            allMatch = false;
+            break;
+          }
+        }
+        if (allMatch) return cid;
+      }
+    }
+  }
+
+  // 3. None matched — create a fresh conversation + participants.
+  const convType = friendIds.length === 1 ? "direct" : "group";
+  const { data: convo, error: cInsErr } = await supabase
+    .from("conversations")
+    .insert({ type: convType, group_id: null })
+    .select("id")
+    .single();
+  if (cInsErr) throw cInsErr;
+
+  const partRows = Array.from(targetIds).map((uid) => ({
+    conversation_id: convo.id,
+    user_id: uid,
+  }));
+  const { error: pInsErr } = await supabase
+    .from("conversation_participants")
+    .insert(partRows);
+  if (pInsErr) throw pInsErr;
+
+  return convo.id;
+}
+
+/**
  * Find or create a direct conversation between the signed-in user and
  * `otherUserId`. Returns the conversation id.
  */

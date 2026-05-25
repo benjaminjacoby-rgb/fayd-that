@@ -102,6 +102,7 @@ export function HomeClient({
               onVote={handlers.onVote}
               onAcceptMediator={handlers.onAcceptMediator}
               onMarkConcluded={handlers.onMarkConcluded}
+              onCancelBet={handlers.onCancelBet}
               onOpenSubContract={(bet, subContractId) =>
                 setFaydSheet({ betId: bet.id, subContractId })
               }
@@ -160,6 +161,7 @@ export interface FeedHandlers {
   onVote: (bet: BetView, side: BetSide) => void;
   onAcceptMediator: (bet: BetView) => void;
   onMarkConcluded: (bet: BetView) => void;
+  onCancelBet: (bet: BetView) => void;
   onConfirmFill: (params: {
     bet: BetView;
     subContractId: string | null;
@@ -388,7 +390,21 @@ export function makeHandlers({
     }
   }
 
-  return { onReact, onVote, onAcceptMediator, onMarkConcluded, onConfirmFill, onPostSubContract };
+  function onCancelBet(bet: BetView) {
+    updateBet(bet.id, (b) => {
+      const meta = b.post_meta!;
+      // Cancellation only affects the unfilled portion of the original line.
+      // Existing fills (sub_contracts + accepted contracts) are untouched.
+      const filled = meta.original_filled_cents;
+      if (filled === 0) {
+        return { ...b, status: "cancelled" };
+      }
+      return { ...b, stake_cents: filled };
+    });
+    setToast("Unfilled stake cancelled");
+  }
+
+  return { onReact, onVote, onAcceptMediator, onMarkConcluded, onCancelBet, onConfirmFill, onPostSubContract };
 }
 
 function buildContract(args: {

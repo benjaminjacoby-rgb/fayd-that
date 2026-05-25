@@ -138,6 +138,7 @@ export function GroupClient({
                   onVote={handlers.onVote}
                   onAcceptMediator={handlers.onAcceptMediator}
                   onMarkConcluded={handlers.onMarkConcluded}
+                  onCancelBet={handlers.onCancelBet}
                   onOpenSubContract={(bet, subContractId) =>
                     setFaydSheet({ betId: bet.id, subContractId })
                   }

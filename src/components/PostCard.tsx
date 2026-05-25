@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Avatar } from "./Avatar";
-import { currentLineFor, formatCents, fullName } from "@/lib/format";
-import type { BetSide, BetView, Reaction, UserLite } from "@/types/db";
+import { formatCents, formatTimeRemaining, fullName } from "@/lib/format";
+import type { BetSide, BetView, MediatorState, Reaction, UserLite } from "@/types/db";
 
 interface Props {
   bet: BetView;
@@ -17,25 +18,14 @@ interface Props {
   onVote: (bet: BetView, side: BetSide) => void;
   onAcceptMediator: (bet: BetView) => void;
   onMarkConcluded: (bet: BetView) => void;
+  onCancelBet?: (bet: BetView) => void;
   onOpenSubContract?: (bet: BetView, subContractId: string) => void;
 }
-
-const POSTER_AGE = (iso: string): string => {
-  const diff = Date.now() - new Date(iso).getTime();
-  const m = Math.floor(diff / 60_000);
-  if (m < 1) return "just now";
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
-};
 
 const REACTION_PICKER = ["🔥", "😂", "💀", "🙏", "👀", "🤝"];
 
 interface ContractEntry {
-  /** Stable id: "original" for the bet's original line, or sub-contract id. */
   id: string;
-  /** Null when this is the bet's original line. */
   subContractId: string | null;
   poster: UserLite;
   poster_side: BetSide;
@@ -71,12 +61,21 @@ function buildContractList(bet: BetView): ContractEntry[] {
   ];
 }
 
-// Most-recent-not-fully-filled, else most-recent overall.
 function pickMain(list: ContractEntry[]): ContractEntry {
   const sorted = [...list].sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
   );
   return sorted.find((c) => c.filled_cents < c.stake_cents) ?? sorted[0];
+}
+
+/** Exactly-2-decimal dollar format ($1.00, $8.57). */
+function formatDollars2dp(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
+/** Strip the leading "from " from a group relationship label. */
+function groupNameFromMeta(label: string): string {
+  return label.replace(/^from\s+/i, "").trim();
 }
 
 export function PostCard({
@@ -91,12 +90,15 @@ export function PostCard({
   onVote,
   onAcceptMediator,
   onMarkConcluded,
+  onCancelBet,
   onOpenSubContract,
 }: Props) {
+  const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [showAcceptMediator, setShowAcceptMediator] = useState(false);
   const [showConcludeConfirm, setShowConcludeConfirm] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   void currentUser;
 
   const meta = bet.post_meta;
@@ -110,16 +112,44 @@ export function PostCard({
   const main = pickMain(contracts);
   const rest = contracts.filter((c) => c.id !== main.id);
 
-  const line = currentLineFor(bet, bet.contracts ?? []);
-
   const mainRemainingCents = Math.max(0, main.stake_cents - main.filled_cents);
   const expired = bet.status !== "open";
   const isMyMain = main.poster.id === currentUserId;
   const isMyBet = bet.creator_id === currentUserId;
 
-  // Taker is always on the opposite side of the main contract's poster.
-  const takerSide: BetSide = main.poster_side === "yes" ? "no" : "yes";
-  const takerOdds = 100 - main.yes_probability;
+  const originalRemainingCents = Math.max(
+    0,
+    bet.stake_cents - meta.original_filled_cents,
+  );
+  const canCancel = isMyBet && !concluded && originalRemainingCents > 0 && bet.status === "open";
+
+  // Posted-side / taker-side derivation for the body block.
+  const posterSide: BetSide = main.poster_side;
+  const takerSide: BetSide = posterSide === "yes" ? "no" : "yes";
+  const posterOdds = posterSide === "yes" ? main.yes_probability : 100 - main.yes_probability;
+  const takerOdds = 100 - posterOdds;
+
+  // Max counter stake — what the opposing side can put up to match the poster.
+  // maxBet = (posterStake × counterOdds) / posterOdds
+  const maxBetCents = posterOdds > 0
+    ? Math.round((main.stake_cents * takerOdds) / posterOdds)
+    : 0;
+  const minBetCents = 100; // $1.00 floor
+
+  // Filled = no more room on the main contract.
+  const fullyFilled = mainRemainingCents === 0;
+
+  // Group pill — derived from the bet's group scope. Uses the joined
+  // relationship label so no extra Supabase call is needed.
+  const groupName =
+    bet.scope === "group" && bet.group_id && meta.relationship.kind === "group"
+      ? groupNameFromMeta(meta.relationship.label)
+      : null;
+
+  const subtitleParts: string[] = [];
+  if (bet.creator.username) subtitleParts.push(`@${bet.creator.username}`);
+  subtitleParts.push(formatTimeRemaining(bet.expiry_at));
+  const subtitle = subtitleParts.join(" · ");
 
   const handleMainFayd = () => {
     if (main.subContractId) {
@@ -129,10 +159,20 @@ export function PostCard({
     }
   };
 
+  const handleDuplicate = () => {
+    const params = new URLSearchParams({
+      q: bet.question,
+      category: bet.category,
+      yes_probability: String(bet.yes_probability),
+      stake_cents: String(bet.stake_cents),
+    });
+    router.push(`/create?${params.toString()}`);
+  };
+
   return (
-    <article className="bg-bg2 rounded-card overflow-hidden">
-      {/* Header */}
-      <header className="px-4 pt-4 pb-3 flex items-center gap-3">
+    <article className="bg-[#141414] rounded-card overflow-hidden border border-[#222]">
+      {/* ── Top row: avatar + question + stake summary ─────────────────── */}
+      <div className="relative px-4 pt-4 pb-3 flex items-start gap-3">
         <Avatar
           first={bet.creator.first_name}
           lastInitial={bet.creator.last_name_initial}
@@ -140,23 +180,26 @@ export function PostCard({
           size={40}
         />
         <div className="flex-1 min-w-0">
-          <div className="flex items-baseline gap-1.5 text-sm">
-            <span className="font-semibold truncate">
-              {isMyBet ? "You" : fullName(bet.creator)}
-            </span>
-            <span className="text-text3">·</span>
-            <span className="text-text3 text-[11px] font-mono">{POSTER_AGE(bet.created_at)}</span>
-          </div>
-          <div className="text-text3 text-[11px]">
-            {meta.relationship.label}
-            {bet.creator.username ? <> · @{bet.creator.username}</> : null}
+          <h2 className="text-sm font-semibold leading-tight truncate">
+            {bet.question}
+          </h2>
+          <div className="text-text3 text-[11px] mt-1 truncate">
+            {isMyBet ? "You" : fullName(bet.creator)} · {subtitle}
           </div>
         </div>
-        <div className="relative">
+        <div className="text-right shrink-0">
+          <div className="font-mono font-bold text-base tabular-nums">
+            {formatCents(bet.stake_cents)}
+          </div>
+          <div className="text-text3 text-[10px] uppercase tracking-wide mt-0.5">
+            Max staked
+          </div>
+        </div>
+        <div className="relative shrink-0 -mr-1">
           <button
             onClick={() => setMenuOpen((v) => !v)}
             aria-label="post options"
-            className="w-8 h-8 rounded-pill bg-bg3 hover:bg-bg4 inline-flex items-center justify-center text-text2"
+            className="w-7 h-7 rounded-pill bg-bg3 hover:bg-bg4 inline-flex items-center justify-center text-text2 transition active:scale-[0.95]"
           >
             <DotsIcon />
           </button>
@@ -182,129 +225,123 @@ export function PostCard({
                     </button>
                   </li>
                 ) : null}
+                {canCancel ? (
+                  <li>
+                    <button
+                      onClick={() => { setMenuOpen(false); setShowCancelConfirm(true); }}
+                      className="w-full text-left px-3 py-2.5 text-sm hover:bg-bg4 text-no"
+                    >
+                      Cancel bet
+                    </button>
+                  </li>
+                ) : null}
               </ul>
             </>
           ) : null}
         </div>
-      </header>
+      </div>
 
-      {/* Question */}
-      <div className="px-4 pb-3">
-        <div className="flex items-start gap-2">
-          <h2 className="text-lg font-semibold leading-snug flex-1">{bet.question}</h2>
+      {/* ── Mediator chip + concluded badge row ────────────────────────── */}
+      {(mediatorState || concluded) ? (
+        <div className="px-4 pb-2 flex items-center gap-2 flex-wrap">
           {concluded ? (
-            <span className="text-[10px] font-bold uppercase tracking-wide bg-bg3 text-text2 rounded-pill px-2 py-1 shrink-0">
+            <span className="text-[10px] font-bold uppercase tracking-wide bg-bg3 text-text2 rounded-pill px-2 py-0.5">
               Concluded
             </span>
           ) : null}
-        </div>
-        {meta.end_at ? (
-          <div className="text-text3 text-[11px] mt-1">Ends {formatEndAt(meta.end_at)}</div>
-        ) : null}
-      </div>
-
-      {/* Main contract — poster's position */}
-      <div className="px-4 pb-3">
-        <div className="bg-bg3 rounded-input px-3 py-2.5 flex items-center gap-2 text-sm flex-wrap">
-          <span className="text-text2">
-            {isMyMain ? "You're" : `${main.poster.first_name} is`} on
-          </span>
-          <span
-            className={`text-[11px] font-bold uppercase rounded-pill px-2 py-0.5 ${
-              main.poster_side === "yes" ? "bg-yes/20 text-yes" : "bg-no/20 text-no"
-            }`}
-          >
-            {main.poster_side}
-          </span>
-          <span className="text-text3">·</span>
-          <span className="text-text font-bold text-base font-mono">
-            {formatCents(main.stake_cents)}
-          </span>
-        </div>
-      </div>
-
-      {/* Group line bar with percentage marker */}
-      <div className="px-4 pb-3">
-        <div className="mb-1.5">
-          <span className="text-[10px] uppercase tracking-wide text-text3 font-medium">Group line</span>
-        </div>
-        <div className="relative pb-4">
-          <div className="h-2 w-full rounded-pill bg-bg3 overflow-hidden flex">
-            <div className="bg-yes h-full" style={{ width: `${line.yesPercent}%` }} />
-            <div className="bg-no h-full"  style={{ width: `${100 - line.yesPercent}%` }} />
-          </div>
-          {/* vertical marker at the YES/NO boundary */}
-          <div
-            className="absolute h-4 w-px bg-text"
-            style={{ left: `${line.yesPercent}%`, top: "-2px", transform: "translateX(-50%)" }}
-            aria-hidden
-          />
-          {/* percentage label under the marker */}
-          <div
-            className="absolute text-yes text-[10px] font-mono font-semibold whitespace-nowrap"
-            style={{ left: `${line.yesPercent}%`, top: "10px", transform: "translateX(-50%)" }}
-          >
-            {line.yesPercent}%
-          </div>
-        </div>
-      </div>
-
-      {/* Mediator status bar */}
-      {mediatorState ? (
-        <div className="mx-4 mb-3 rounded-input bg-gold/15 border border-gold/40 px-3 py-2 flex items-center gap-2">
-          <ScalesIcon />
-          <div className="flex-1 text-xs font-medium text-gold">
-            {mediatorState.mode === "requested"
-              ? "Mediator requested"
-              : `Mediated by ${mediatorState.mediator ? mediatorState.mediator.first_name : "—"}`}
-          </div>
-          {mediatorState.mode === "requested" && bet.creator_id !== currentUserId ? (
-            <button
-              onClick={() => setShowAcceptMediator(true)}
-              className="rounded-pill bg-gold text-bg text-[11px] font-semibold px-3 py-1 hover:brightness-110"
-            >
-              Accept
-            </button>
+          {mediatorState ? (
+            <MediatorChip
+              state={mediatorState}
+              canAccept={mediatorState.mode === "requested" && bet.creator_id !== currentUserId}
+              onAccept={() => setShowAcceptMediator(true)}
+            />
           ) : null}
         </div>
       ) : null}
 
-      {/* Buttons */}
-      <div className="px-4 pb-3 grid grid-cols-[1fr_auto_auto] gap-2">
-        <button
-          onClick={handleMainFayd}
-          disabled={mainRemainingCents === 0 || expired || isMyMain}
-          className={`rounded-input text-bg font-semibold text-sm py-2.5 hover:brightness-110 active:scale-[0.98] transition disabled:opacity-40 disabled:cursor-not-allowed ${
-            mainRemainingCents === 0 || expired
-              ? "bg-bg3 text-text2"
-              : takerSide === "yes"
-                ? "bg-yes"
-                : "bg-no"
-          }`}
-        >
-          {mainRemainingCents === 0
-            ? "Fully Filled"
-            : expired
-              ? "Expired"
-              : `Fayd That · ${takerOdds}% ${takerSide.toUpperCase()}`}
-        </button>
-        <button
-          onClick={() => onCounter(bet)}
-          disabled={expired || isMyMain}
-          className="rounded-input border border-yes/40 text-yes font-semibold text-sm px-3 py-2.5 hover:bg-yes/10 transition disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          Duplicate
-        </button>
-        <button
-          onClick={() => onComment(bet)}
-          className="rounded-input bg-bg3 text-text2 hover:bg-bg4 text-sm px-3 py-2.5 transition"
-          aria-label="comment"
-        >
-          <CommentIcon />
-        </button>
+      {/* ── Group tag (amber) ──────────────────────────────────────────── */}
+      {groupName ? (
+        <div className="px-4 pb-3">
+          <span className="inline-block bg-[#1c0f00] text-[#a16207] text-[11px] font-semibold rounded-pill px-2.5 py-1">
+            {groupName}
+          </span>
+        </div>
+      ) : null}
+
+      {/* ── Body block (only while there's still actionable side) ──────── */}
+      {!fullyFilled && !expired && !concluded ? (
+        <div className="px-4 pb-3 flex flex-col gap-3">
+          {/* Posted/your-side summary line */}
+          <div className="text-xs text-text2 leading-relaxed">
+            <span className="text-text font-medium">
+              {isMyMain ? "You" : main.poster.first_name ?? "Poster"}
+            </span>{" "}
+            posted{" "}
+            <span className={posterSide === "yes" ? "text-yes font-semibold" : "text-no font-semibold"}>
+              {posterSide.toUpperCase()}
+            </span>{" "}
+            · <span className="font-mono tabular-nums">{posterOdds}%</span>
+            <span className="text-text3"> · </span>
+            your side is{" "}
+            <span className={takerSide === "yes" ? "text-yes font-semibold" : "text-no font-semibold"}>
+              {takerSide.toUpperCase()}
+            </span>{" "}
+            at <span className="font-mono tabular-nums">{takerOdds}%</span>
+          </div>
+
+          {/* YOUR SIDE block — deep red bg, red border */}
+          <div className="bg-[#1a0d0d] border border-no/30 rounded-input px-3 py-2.5 flex items-center justify-between">
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-text3 font-semibold">
+                Your side
+              </div>
+              <div className={`text-base font-bold mt-0.5 ${takerSide === "yes" ? "text-yes" : "text-no"}`}>
+                {takerSide.toUpperCase()}
+              </div>
+            </div>
+            <div className={`text-2xl font-bold font-mono tabular-nums ${takerSide === "yes" ? "text-yes" : "text-no"}`}>
+              {takerOdds}%
+            </div>
+          </div>
+
+          {/* Min bet / Max bet pair */}
+          <div className="grid grid-cols-2 gap-2">
+            <StatBox label="Min bet" value={formatDollars2dp(minBetCents)} />
+            <StatBox label="Max bet" value={formatDollars2dp(maxBetCents)} />
+          </div>
+        </div>
+      ) : null}
+
+      {/* ── Actions ────────────────────────────────────────────────────── */}
+      <div className="px-4 pb-3 flex flex-col gap-2">
+        {fullyFilled || expired ? (
+          <button
+            onClick={handleDuplicate}
+            className="w-full rounded-input border border-yes/40 text-yes font-semibold text-sm py-2.5 hover:bg-yes/10 hover:border-yes/60 active:scale-[0.97] transition-all duration-150 ease-out"
+          >
+            Duplicate
+          </button>
+        ) : (
+          <>
+            <button
+              onClick={handleMainFayd}
+              disabled={isMyMain}
+              className="fayd-pulse-once w-full rounded-input bg-no text-white font-semibold text-sm py-3 transition-all duration-150 ease-out hover:bg-[#ff8585] hover:scale-[1.02] active:scale-[0.97] active:bg-[#e05555] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+            >
+              Fayd That · {takerOdds}% {takerSide.toUpperCase()}
+            </button>
+            <button
+              onClick={() => onCounter(bet)}
+              disabled={isMyMain}
+              className="w-full rounded-input bg-bg2 border border-bg3 text-text2 font-semibold text-sm py-2.5 transition-all duration-150 ease-out hover:border-[#1a5c30] hover:text-yes active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Counter with different odds
+            </button>
+          </>
+        )}
       </div>
 
-      {/* Reactions */}
+      {/* ── Reactions ──────────────────────────────────────────────────── */}
       <div className="px-4 pb-3 flex items-center gap-1.5 flex-wrap">
         {meta.reactions.map((r) => (
           <ReactionChip key={r.emoji} reaction={r} onClick={() => onReact(bet, r.emoji)} />
@@ -312,7 +349,7 @@ export function PostCard({
         <div className="relative">
           <button
             onClick={() => setPickerOpen((v) => !v)}
-            className="inline-flex items-center justify-center w-7 h-7 rounded-pill bg-bg3 hover:bg-bg4 text-text3 text-xs"
+            className="inline-flex items-center justify-center w-7 h-7 rounded-pill bg-bg3 hover:bg-bg4 text-text3 text-xs transition active:scale-[0.95]"
             aria-label="add reaction"
           >
             +
@@ -336,7 +373,7 @@ export function PostCard({
         </div>
       </div>
 
-      {/* Sub-contracts (includes demoted originals) */}
+      {/* ── Sub-contracts ──────────────────────────────────────────────── */}
       {rest.length > 0 ? (
         <div className="px-4 pb-3">
           <div className="text-[10px] uppercase tracking-wide text-text3 font-medium mb-2">
@@ -387,7 +424,7 @@ export function PostCard({
                       <span className="text-text3 text-xs italic whitespace-nowrap">fully filled</span>
                     ) : (
                       <span
-                        className={`rounded-pill px-3 py-1.5 text-xs font-semibold whitespace-nowrap border cursor-pointer ${
+                        className={`rounded-pill px-3 py-1.5 text-xs font-semibold whitespace-nowrap border ${
                           subCounterSide === "yes"
                             ? "bg-yes/15 text-yes border-yes/40 hover:bg-yes/25"
                             : "bg-no/15 text-no border-no/40 hover:bg-no/25"
@@ -404,7 +441,7 @@ export function PostCard({
         </div>
       ) : null}
 
-      {/* Confirmation modals */}
+      {/* ── Confirmation modals ─────────────────────────────────────────── */}
       {showAcceptMediator ? (
         <ConfirmModal
           title="Accept mediator role for this bet?"
@@ -427,30 +464,63 @@ export function PostCard({
           }}
         />
       ) : null}
+      {showCancelConfirm ? (
+        <ConfirmModal
+          title={`Cancel the unfilled ${formatCents(originalRemainingCents)} on this bet?`}
+          confirmLabel="Cancel bet"
+          onCancel={() => setShowCancelConfirm(false)}
+          onConfirm={() => {
+            setShowCancelConfirm(false);
+            onCancelBet?.(bet);
+          }}
+        />
+      ) : null}
 
-      {/* Comments preview */}
-      <div className="px-4 pb-4">
-        {meta.comments.length === 0 ? (
-          <button onClick={() => onComment(bet)} className="text-text3 text-xs hover:text-text2">
-            Be the first to comment
-          </button>
-        ) : (
-          <ul className="flex flex-col gap-1.5">
-            {meta.comments.slice(0, 2).map((c) => (
-              <li key={c.id} className="text-sm flex gap-1.5">
-                <span className="font-semibold text-text2 shrink-0">{fullName(c.user)}</span>
-                <span className="text-text break-words">{c.text}</span>
-              </li>
-            ))}
-            {meta.comments.length > 2 ? (
-              <button onClick={() => onComment(bet)} className="text-text3 text-xs hover:text-text2 text-left">
-                View all {meta.comments.length} comments
-              </button>
-            ) : null}
-          </ul>
-        )}
+      {/* ── Chat / comments footer ─────────────────────────────────────── */}
+      <div className="px-4 py-4 border-t border-[#222] flex items-start gap-3">
+        <button
+          onClick={() => onComment(bet)}
+          aria-label="Open chat"
+          className="shrink-0 w-9 h-9 rounded-pill bg-bg3 inline-flex items-center justify-center text-[#555] hover:text-[#aaa] active:scale-[0.95] transition-all duration-150 ease-out"
+        >
+          <ChatIcon />
+        </button>
+        <div className="flex-1 min-w-0">
+          {meta.comments.length === 0 ? (
+            <button onClick={() => onComment(bet)} className="text-[#777] text-xs hover:text-text2 text-left">
+              Be the first to comment
+            </button>
+          ) : (
+            <ul className="flex flex-col gap-1.5">
+              {meta.comments.slice(0, 2).map((c) => (
+                <li key={c.id} className="text-sm flex gap-1.5">
+                  <span className="font-semibold text-text2 shrink-0">{fullName(c.user)}</span>
+                  <span className="text-[#bbb] break-words">{c.text}</span>
+                </li>
+              ))}
+              {meta.comments.length > 2 ? (
+                <button onClick={() => onComment(bet)} className="text-[#777] text-xs hover:text-text2 text-left">
+                  View all {meta.comments.length} comments
+                </button>
+              ) : null}
+            </ul>
+          )}
+        </div>
       </div>
     </article>
+  );
+}
+
+function StatBox({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-[#0d0d0d] border border-[#222] rounded-input px-3 py-2">
+      <div className="text-[10px] uppercase tracking-wide text-text3 font-semibold">
+        {label}
+      </div>
+      <div className="font-mono font-bold tabular-nums text-no text-lg mt-0.5">
+        {value}
+      </div>
+    </div>
   );
 }
 
@@ -478,17 +548,17 @@ function DotsIcon() {
   );
 }
 
-function CommentIcon() {
+function ChatIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4" aria-hidden>
       <path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z" />
     </svg>
   );
 }
 
-function ScalesIcon() {
+function ScalesIcon({ className = "w-3 h-3 text-gold shrink-0" }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-gold shrink-0" aria-hidden>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden>
       <path d="M12 3v18" />
       <path d="M5 21h14" />
       <path d="M5 7h14" />
@@ -498,12 +568,37 @@ function ScalesIcon() {
   );
 }
 
-function formatEndAt(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const datePart = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  const timePart = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-  return `${datePart} at ${timePart}`;
+function MediatorChip({
+  state,
+  canAccept,
+  onAccept,
+}: {
+  state: MediatorState;
+  canAccept: boolean;
+  onAccept: () => void;
+}) {
+  const label =
+    state.mode === "requested"
+      ? canAccept
+        ? "Mediator needed"
+        : "Mediator requested"
+      : `Med: ${state.mediator?.first_name ?? "—"}`;
+  const baseClass =
+    "inline-flex items-center gap-1 rounded-pill bg-gold/15 text-gold text-[10px] font-semibold px-2 py-0.5";
+  if (canAccept) {
+    return (
+      <button onClick={onAccept} className={`${baseClass} hover:bg-gold/25 transition`}>
+        <ScalesIcon />
+        <span>{label}</span>
+      </button>
+    );
+  }
+  return (
+    <span className={baseClass}>
+      <ScalesIcon />
+      <span>{label}</span>
+    </span>
+  );
 }
 
 function ConfirmModal({

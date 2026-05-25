@@ -1,10 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Avatar } from "@/components/Avatar";
+import { Button } from "@/components/ui/Button";
 import { fullName } from "@/lib/format";
 import { isConversationRead, useSessionStore } from "@/lib/sessionState";
+import { USE_MOCK_DATA } from "@/lib/config";
+import { getOrCreateConversationWithFriends } from "@/lib/data/messagesClient";
 import type { ChatMessageView, ConversationView, UserLite } from "@/types/db";
 
 type Tab = "dm" | "group";
@@ -13,15 +17,20 @@ export function MessagesClient({
   dms: dmsProp,
   groups: groupsProp,
   currentUserId,
+  friends,
 }: {
   dms: ConversationView[];
   groups: ConversationView[];
   currentUserId: string;
+  friends: UserLite[];
 }) {
+  const router = useRouter();
   const [tab, setTab] = useState<Tab>("dm");
   useSessionStore(); // re-render when read state changes
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   // Override unread_count to 0 for any conversation the user opened this session.
   const applyRead = (xs: ConversationView[]): ConversationView[] =>
@@ -37,6 +46,16 @@ export function MessagesClient({
 
   return (
     <div className="px-4 pt-4 pb-6">
+      <div className="mb-3">
+        <button
+          type="button"
+          onClick={() => setPickerOpen(true)}
+          className="w-full rounded-input bg-yes text-bg font-semibold text-sm py-2.5 hover:brightness-110 transition"
+        >
+          New Message
+        </button>
+      </div>
+
       <div className="grid grid-cols-2 gap-1 bg-bg2 rounded-pill p-1 mb-3">
         <TabButton active={tab === "dm"}    badge={totalDm}    label="DMs"    onClick={() => setTab("dm")} />
         <TabButton active={tab === "group"} badge={totalGroup} label="Groups" onClick={() => setTab("group")} />
@@ -53,6 +72,134 @@ export function MessagesClient({
           ))}
         </ul>
       )}
+
+      {pickerOpen ? (
+        <NewMessagePicker
+          friends={friends}
+          onClose={() => setPickerOpen(false)}
+          onCreated={(conversationId) => {
+            setPickerOpen(false);
+            router.push(`/messages/${conversationId}`);
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function NewMessagePicker({
+  friends,
+  onClose,
+  onCreated,
+}: {
+  friends: UserLite[];
+  onClose: () => void;
+  onCreated: (conversationId: string) => void;
+}) {
+  const [selected, setSelected] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const sortedFriends = useMemo(
+    () => [...friends].sort((a, b) => (a.first_name ?? "").localeCompare(b.first_name ?? "")),
+    [friends],
+  );
+
+  function toggle(id: string) {
+    setSelected((xs) => (xs.includes(id) ? xs.filter((x) => x !== id) : [...xs, id]));
+  }
+
+  async function create() {
+    if (selected.length === 0) return;
+    setError(null);
+    setBusy(true);
+    try {
+      if (USE_MOCK_DATA) {
+        // Mock mode can't represent ad-hoc multi-party convos. Single-friend
+        // selections route to the seeded `dm-<friendId>` mock conversation.
+        if (selected.length === 1) {
+          onCreated(`dm-${selected[0]}`);
+          return;
+        }
+        setError("Multi-party chats require Supabase (not available in mock mode).");
+        return;
+      }
+      const convId = await getOrCreateConversationWithFriends(selected);
+      onCreated(convId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't start conversation");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-app bg-bg2 rounded-t-2xl shadow-2xl px-5 pt-2 pb-6 max-h-[80vh] flex flex-col">
+        <div className="flex justify-center mb-2">
+          <div className="h-1 w-10 rounded-pill bg-bg4" />
+        </div>
+        <div className="flex items-baseline justify-between mb-3">
+          <h2 className="text-lg font-bold">New message</h2>
+          <span className="text-text3 text-xs">
+            {selected.length === 0
+              ? "Pick a friend"
+              : selected.length === 1
+                ? "1 selected · DM"
+                : `${selected.length} selected · group chat`}
+          </span>
+        </div>
+
+        {sortedFriends.length === 0 ? (
+          <p className="text-text3 text-sm py-6 text-center">
+            You don't have any friends yet — add some from the Friends tab.
+          </p>
+        ) : (
+          <ul className="flex-1 overflow-y-auto -mx-5 px-5 divide-y divide-bg3">
+            {sortedFriends.map((f) => {
+              const active = selected.includes(f.id);
+              return (
+                <li key={f.id}>
+                  <button
+                    onClick={() => toggle(f.id)}
+                    className="w-full flex items-center gap-3 py-3 text-left hover:bg-bg3/50 transition rounded"
+                  >
+                    <Avatar
+                      first={f.first_name}
+                      lastInitial={f.last_name_initial}
+                      color={f.avatar_color}
+                      size={36}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium truncate">{fullName(f)}</div>
+                      <div className="text-text3 text-xs truncate">@{f.username ?? "—"}</div>
+                    </div>
+                    <span
+                      className={`shrink-0 w-5 h-5 rounded-pill inline-flex items-center justify-center text-[10px] font-bold ${
+                        active
+                          ? "bg-yes text-bg"
+                          : "bg-bg3 text-text3 border border-bg4"
+                      }`}
+                      aria-hidden
+                    >
+                      {active ? "✓" : ""}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+
+        {error ? <p className="text-no text-xs mt-2">{error}</p> : null}
+
+        <div className="mt-3 pt-3 border-t border-bg3">
+          <Button full disabled={selected.length === 0 || busy} onClick={create}>
+            {busy ? "Creating…" : "Create"}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

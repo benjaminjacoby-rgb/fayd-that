@@ -12,8 +12,8 @@
   --text: #f0f0f8;
   --text2: #9090a8;
   --text3: #5a5a78;
-  --yes: #00d4a8;
-  --no: #ff5c7a;
+  --yes: #4ade80;
+  --no: #f87171;
   --blue: #4d90fe;
   --orange: #ff8c42;
   --purple: #a78bfa;
@@ -63,3 +63,12 @@ input[type="range"].fayd-slider::-moz-range-thumb {
 
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* One-time attention pulse for the primary Fayd That CTA. */
+@keyframes fayd-pulse-once {
+  0%   { box-shadow: 0 0 0 0   rgba(248, 113, 113, 0.55); }
+  100% { box-shadow: 0 0 0 14px rgba(248, 113, 113, 0);    }
+}
+.fayd-pulse-once {
+  animation: fayd-pulse-once 900ms ease-out 1;
+}

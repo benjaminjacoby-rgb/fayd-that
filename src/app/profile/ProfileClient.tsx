@@ -9,13 +9,12 @@ import type { GroupView, UserRow } from "@/types/db";
 
 export function ProfileClient({
   me,
-  stats,
   friends,
   pendingRequestsCount,
   groups,
 }: {
   me: UserRow;
-  stats: { totalBets: number; winRate: number; totalWonCents: number; currentStreak: number };
+  stats?: { totalBets: number; winRate: number; totalWonCents: number; currentStreak: number };
   friends: UserRow[];
   pendingRequestsCount: number;
   groups: GroupView[];
@@ -31,14 +30,6 @@ export function ProfileClient({
           <div className="text-lg font-semibold">{fullName(me)}</div>
           <div className="text-text2 text-sm">@{me.username ?? "—"}</div>
         </div>
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 gap-2">
-        <StatCard label="Total bets" value={String(stats.totalBets)} />
-        <StatCard label="Win rate" value={`${Math.round(stats.winRate * 100)}%`} />
-        <StatCard label="Total won" value={formatCents(stats.totalWonCents)} accent="text-gold" />
-        <StatCard label="Streak" value={`${stats.currentStreak} 🔥`} />
       </div>
 
       {/* Wallet */}
@@ -145,18 +136,6 @@ export function ProfileClient({
         </Link>
       </section>
 
-      <Link href="/mediate" className="text-center text-sm text-text2 underline mt-2">
-        ⚖️ Go to mediator inbox
-      </Link>
-    </div>
-  );
-}
-
-function StatCard({ label, value, accent = "" }: { label: string; value: string; accent?: string }) {
-  return (
-    <div className="bg-bg2 rounded-card p-3">
-      <div className="text-[10px] uppercase tracking-wide text-text3">{label}</div>
-      <div className={`font-mono text-lg font-semibold ${accent}`}>{value}</div>
     </div>
   );
 }
