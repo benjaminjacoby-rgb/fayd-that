@@ -1,0 +1,316 @@
+import { createClient } from "@/lib/supabase/server";
+import { pickAvatarColor } from "@/lib/avatar";
+import type {
+  BetSide,
+  BetStatus,
+  BetView,
+  ContractView,
+  PostMeta,
+  RelationshipLabel,
+  SubContractView,
+  UserLite,
+} from "@/types/db";
+
+// ────────────────────────────────────────────────
+// Row shapes from the schema in supabase/migrations/001_initial_schema.sql.
+// These differ from the UI's BetView/UserLite, so we map below.
+// ────────────────────────────────────────────────
+interface DbUser {
+  id: string;
+  username: string | null;
+  full_name: string | null;
+  phone_number: string | null;
+  avatar_url: string | null;
+  wallet_balance: number | null;
+}
+
+interface DbFill {
+  id: string;
+  contract_id: string;
+  filler_id: string | null;
+  amount: number;
+  created_at: string;
+}
+
+interface DbContract {
+  id: string;
+  bet_id: string;
+  creator_id: string | null;
+  position: "YES" | "NO" | null;
+  odds: number;
+  stake_amount: number;
+  amount_remaining: number;
+  is_filled: boolean;
+  created_at: string;
+}
+
+interface DbBet {
+  id: string;
+  poster_id: string | null;
+  question: string;
+  poster_position: "YES" | "NO" | null;
+  stake_amount: number;
+  audience_type: "friends" | "group" | "specific_friends" | null;
+  group_id: string | null;
+  end_date: string | null;
+  is_concluded: boolean;
+  mediator_type: "none" | "self" | "requested";
+  mediator_id: string | null;
+  status: "open" | "filled" | "concluded";
+  created_at: string;
+}
+
+interface DbGroup {
+  id: string;
+  name: string;
+}
+
+// ────────────────────────────────────────────────
+// Public API
+// ────────────────────────────────────────────────
+export async function getFeedBets(): Promise<BetView[]> {
+  const supabase = createClient();
+
+  const { data: betsData, error: betsError } = await supabase
+    .from("bets")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (betsError) throw betsError;
+  const bets = (betsData ?? []) as DbBet[];
+  if (bets.length === 0) return [];
+
+  const betIds = bets.map((b) => b.id);
+  const groupIds = uniq(bets.map((b) => b.group_id).filter(isString));
+
+  const [contractsRes, posterUserIds, groupsRes] = await Promise.all([
+    supabase.from("contracts").select("*").in("bet_id", betIds),
+    Promise.resolve(uniq(bets.map((b) => b.poster_id).filter(isString))),
+    groupIds.length
+      ? supabase.from("groups").select("id, name").in("id", groupIds)
+      : Promise.resolve({ data: [] as DbGroup[], error: null }),
+  ]);
+  if (contractsRes.error) throw contractsRes.error;
+  if (groupsRes.error) throw groupsRes.error;
+
+  const contracts = (contractsRes.data ?? []) as DbContract[];
+  const groupsById = new Map(((groupsRes.data ?? []) as DbGroup[]).map((g) => [g.id, g]));
+
+  const contractIds = contracts.map((c) => c.id);
+  const { data: fillsData, error: fillsErr } = contractIds.length
+    ? await supabase.from("fills").select("*").in("contract_id", contractIds)
+    : { data: [] as DbFill[], error: null };
+  if (fillsErr) throw fillsErr;
+  const fills = (fillsData ?? []) as DbFill[];
+
+  // Collect every user id we need (posters, contract creators, mediators, fillers).
+  const userIds = uniq([
+    ...posterUserIds,
+    ...bets.map((b) => b.mediator_id).filter(isString),
+    ...contracts.map((c) => c.creator_id).filter(isString),
+    ...fills.map((f) => f.filler_id).filter(isString),
+  ]);
+
+  const { data: usersData, error: usersErr } = userIds.length
+    ? await supabase.from("users").select("id, username, full_name, phone_number, avatar_url, wallet_balance").in("id", userIds)
+    : { data: [] as DbUser[], error: null };
+  if (usersErr) throw usersErr;
+  const usersById = new Map(((usersData ?? []) as DbUser[]).map((u) => [u.id, u]));
+
+  const fillsByContract = groupBy(fills, (f) => f.contract_id);
+  const contractsByBet = groupBy(contracts, (c) => c.bet_id);
+
+  return bets.map((bet) => buildBetView(bet, contractsByBet.get(bet.id) ?? [], fillsByContract, usersById, groupsById));
+}
+
+// ────────────────────────────────────────────────
+// Mapping helpers
+// ────────────────────────────────────────────────
+function buildBetView(
+  bet: DbBet,
+  betContracts: DbContract[],
+  fillsByContract: Map<string, DbFill[]>,
+  usersById: Map<string, DbUser>,
+  groupsById: Map<string, DbGroup>,
+): BetView {
+  const posterUser = usersById.get(bet.poster_id ?? "");
+  const creator = toUserLite(bet.poster_id, posterUser);
+  const posterSide: BetSide = (bet.poster_position ?? "YES").toLowerCase() as BetSide;
+
+  // Original (creator's) contracts vs sub-contracts (other posters' lines).
+  const originalContracts = betContracts.filter((c) => c.creator_id === bet.poster_id);
+  const subContractRows = betContracts.filter((c) => c.creator_id !== bet.poster_id);
+
+  const originalFilledCents = sumCents(
+    originalContracts.flatMap((c) => fillsByContract.get(c.id) ?? []).map((f) => f.amount),
+  );
+
+  const subContracts: SubContractView[] = subContractRows.map((c) => {
+    const subPoster = toUserLite(c.creator_id, usersById.get(c.creator_id ?? ""));
+    const filled = sumCents((fillsByContract.get(c.id) ?? []).map((f) => f.amount));
+    return {
+      id: c.id,
+      bet_id: c.bet_id,
+      poster: subPoster,
+      poster_side: ((c.position ?? "YES").toLowerCase()) as BetSide,
+      yes_probability: Math.round(c.odds),
+      stake_cents: toCents(c.stake_amount),
+      filled_cents: filled,
+      created_at: c.created_at,
+    };
+  });
+
+  // ContractView entries — one per fill, sized to the fill amount. This keeps
+  // currentLineFor's weighted-probability math accurate.
+  const contractViews: ContractView[] = betContracts.flatMap((c) => {
+    const cFills = fillsByContract.get(c.id) ?? [];
+    return cFills.map((f) => {
+      const posterLite = toUserLite(c.creator_id, usersById.get(c.creator_id ?? ""));
+      const fillerLite = toUserLite(f.filler_id, usersById.get(f.filler_id ?? ""));
+      const isYesPoster = (c.position ?? "YES") === "YES";
+      return {
+        id: f.id,
+        bet_id: c.bet_id,
+        yes_user_id: isYesPoster ? posterLite.id : fillerLite.id,
+        no_user_id: isYesPoster ? fillerLite.id : posterLite.id,
+        yes_probability: Math.round(c.odds),
+        stake_cents: toCents(f.amount),
+        negotiation_id: null,
+        status: "active",
+        yes_outcome: null,
+        created_at: f.created_at,
+        resolved_at: null,
+        yes_user: isYesPoster ? posterLite : fillerLite,
+        no_user: isYesPoster ? fillerLite : posterLite,
+      };
+    });
+  });
+
+  const relationship = relationshipLabel(bet, groupsById);
+  const mediator = mediatorState(bet, usersById);
+
+  const post_meta: PostMeta = {
+    relationship,
+    poster_side: posterSide,
+    original_filled_cents: originalFilledCents,
+    reactions: [],
+    comments: [],
+    poll: { yes_votes: 0, no_votes: 0, my_vote: null },
+    sub_contracts: subContracts,
+    mediator,
+    end_at: bet.end_date,
+    concluded: bet.is_concluded,
+  };
+
+  return {
+    id: bet.id,
+    creator_id: bet.poster_id ?? "",
+    question: bet.question,
+    category: "other",
+    yes_probability: posterSide === "yes" ? 50 : 50, // overall "asking" prob — unknown in this schema; line bar derives from contracts.
+    stake_cents: toCents(bet.stake_amount),
+    expiry_at: bet.end_date ?? bet.created_at,
+    resolution_notes: null,
+    status: mapBetStatus(bet.status),
+    scope: mapScope(bet.audience_type),
+    group_id: bet.group_id,
+    geo_lat: null,
+    geo_lng: null,
+    geo_radius_meters: null,
+    created_at: bet.created_at,
+    resolved_at: null,
+    creator,
+    participants: [],
+    contracts: contractViews,
+    open_negotiations: [],
+    post_meta,
+  };
+}
+
+function mapBetStatus(status: DbBet["status"]): BetStatus {
+  if (status === "filled") return "locked";
+  if (status === "concluded") return "resolved";
+  return "open";
+}
+
+function mapScope(audience: DbBet["audience_type"]): BetView["scope"] {
+  if (audience === "group") return "group";
+  return "friends";
+}
+
+function relationshipLabel(
+  bet: DbBet,
+  groupsById: Map<string, DbGroup>,
+): RelationshipLabel {
+  if (bet.audience_type === "group" && bet.group_id) {
+    const g = groupsById.get(bet.group_id);
+    return { kind: "group", label: g ? `from ${g.name}` : "from group" };
+  }
+  return { kind: "friend", label: "Friend" };
+}
+
+function mediatorState(bet: DbBet, usersById: Map<string, DbUser>): PostMeta["mediator"] {
+  if (bet.mediator_type === "none") return undefined;
+  if (bet.mediator_type === "requested") {
+    if (bet.mediator_id) {
+      const m = toUserLite(bet.mediator_id, usersById.get(bet.mediator_id));
+      return { mode: "accepted", mediator: m };
+    }
+    return { mode: "requested" };
+  }
+  // self-mediated → poster is mediator
+  if (bet.poster_id) {
+    const m = toUserLite(bet.poster_id, usersById.get(bet.poster_id));
+    return { mode: "accepted", mediator: m };
+  }
+  return undefined;
+}
+
+function toUserLite(id: string | null | undefined, u: DbUser | undefined): UserLite {
+  const safeId = id ?? u?.id ?? "unknown";
+  const { first, last } = splitFullName(u?.full_name ?? null);
+  return {
+    id: safeId,
+    first_name: first,
+    last_name_initial: last,
+    username: u?.username ?? null,
+    avatar_color: pickAvatarColor(safeId),
+  };
+}
+
+function splitFullName(full: string | null): { first: string | null; last: string | null } {
+  if (!full) return { first: null, last: null };
+  const parts = full.trim().split(/\s+/);
+  const first = parts[0] ?? null;
+  const last = parts.length > 1 ? (parts[parts.length - 1][0] ?? "").toUpperCase() : null;
+  return { first, last: last && last.length ? last : null };
+}
+
+// Amounts in the DB are stored as numeric dollar units; UI works in cents.
+function toCents(amount: number | null | undefined): number {
+  if (amount == null) return 0;
+  return Math.round(Number(amount) * 100);
+}
+
+function sumCents(amounts: number[]): number {
+  return amounts.reduce((s, a) => s + toCents(a), 0);
+}
+
+function uniq<T>(xs: T[]): T[] {
+  return Array.from(new Set(xs));
+}
+
+function isString(x: string | null | undefined): x is string {
+  return typeof x === "string" && x.length > 0;
+}
+
+function groupBy<T, K>(xs: T[], key: (x: T) => K): Map<K, T[]> {
+  const out = new Map<K, T[]>();
+  for (const x of xs) {
+    const k = key(x);
+    const arr = out.get(k);
+    if (arr) arr.push(x);
+    else out.set(k, [x]);
+  }
+  return out;
+}

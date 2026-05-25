@@ -310,6 +310,8 @@ export const MOCK_BETS: BetView[] = [
       ],
       poll: poll(4, 11, null),
       sub_contracts: [],
+      mediator: { mode: "requested" },
+      end_at: hours(72),
     },
   },
 
@@ -551,6 +553,8 @@ export const MOCK_BETS: BetView[] = [
       sub_contracts: [
         subContract("sc-g1-1", "b-g1", "u-ben", "no", 25, 5_000, 2_500, 240),
       ],
+      mediator: { mode: "accepted", mediator: u("mock-me") },
+      end_at: hours(36),
     },
   },
 
@@ -591,6 +595,7 @@ export const MOCK_BETS: BetView[] = [
       sub_contracts: [
         subContract("sc-g2-1", "b-g2", "mock-me", "yes", 80, 1_000, 0, 45),
       ],
+      mediator: { mode: "accepted", mediator: u("u-noor") },
     },
   },
 ];

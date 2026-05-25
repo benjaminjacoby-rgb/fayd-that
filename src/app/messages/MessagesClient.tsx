@@ -1,16 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Avatar } from "@/components/Avatar";
 import { fullName } from "@/lib/format";
+import { isConversationRead, useSessionStore } from "@/lib/sessionState";
 import type { ChatMessageView, ConversationView, UserLite } from "@/types/db";
 
 type Tab = "dm" | "group";
 
 export function MessagesClient({
-  dms,
-  groups,
+  dms: dmsProp,
+  groups: groupsProp,
   currentUserId,
 }: {
   dms: ConversationView[];
@@ -18,6 +19,18 @@ export function MessagesClient({
   currentUserId: string;
 }) {
   const [tab, setTab] = useState<Tab>("dm");
+  useSessionStore(); // re-render when read state changes
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  // Override unread_count to 0 for any conversation the user opened this session.
+  const applyRead = (xs: ConversationView[]): ConversationView[] =>
+    mounted
+      ? xs.map((c) => (isConversationRead(c.id) ? { ...c, unread_count: 0 } : c))
+      : xs;
+  const dms = applyRead(dmsProp);
+  const groups = applyRead(groupsProp);
+
   const rows = tab === "dm" ? dms : groups;
   const totalDm = dms.reduce((s, c) => s + c.unread_count, 0);
   const totalGroup = groups.reduce((s, c) => s + c.unread_count, 0);

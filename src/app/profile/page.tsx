@@ -7,21 +7,46 @@ import {
   MOCK_INCOMING_FRIEND_REQUESTS,
   mockGroupsForCurrentUser,
 } from "@/lib/mock";
-import { getCurrentUser } from "@/lib/supabase/users";
-import { getFriendsForUser, getPendingFriendRequests } from "@/lib/supabase/friends";
+import {
+  getCurrentUserRow,
+  getFriendsForCurrentUser,
+  getProfileStats,
+} from "@/lib/data/profile";
+import { getGroupsForCurrentUser } from "@/lib/data/groups";
 
 export const dynamic = "force-dynamic";
 
 export default async function ProfilePage() {
-  const me = USE_MOCK_DATA ? MOCK_CURRENT_USER : (await getCurrentUser()) ?? MOCK_CURRENT_USER;
-  const friends = USE_MOCK_DATA ? MOCK_FRIENDS : await getFriendsForUser(me.id);
-  const incomingCount = USE_MOCK_DATA
-    ? MOCK_INCOMING_FRIEND_REQUESTS.length
-    : (await getPendingFriendRequests(me.id)).length;
-  const groups = USE_MOCK_DATA ? mockGroupsForCurrentUser() : [];
+  if (USE_MOCK_DATA) {
+    const me = MOCK_CURRENT_USER;
+    return (
+      <AppShell title="Profile">
+        <ProfileClient
+          me={me}
+          stats={{ totalBets: 0, winRate: 0, totalWonCents: 0, currentStreak: 0 }}
+          friends={MOCK_FRIENDS}
+          pendingRequestsCount={MOCK_INCOMING_FRIEND_REQUESTS.length}
+          groups={mockGroupsForCurrentUser()}
+        />
+      </AppShell>
+    );
+  }
 
-  // TODO: derive these from resolved bet_participants rows for this user.
-  const stats = { totalBets: 0, winRate: 0, totalWonCents: 0, currentStreak: 0 };
+  const me = (await getCurrentUserRow()) ?? MOCK_CURRENT_USER;
+  const [friends, groups, statCounts] = await Promise.all([
+    getFriendsForCurrentUser(),
+    getGroupsForCurrentUser(),
+    getProfileStats(me.id),
+  ]);
+
+  // The existing stat grid surfaces "Total bets" — map active-bets count there.
+  // Friends and groups counts are surfaced through the friends/groups sections.
+  const stats = {
+    totalBets: statCounts.activeBetsCount,
+    winRate: 0,
+    totalWonCents: 0,
+    currentStreak: 0,
+  };
 
   return (
     <AppShell title="Profile">
@@ -29,7 +54,7 @@ export default async function ProfilePage() {
         me={me}
         stats={stats}
         friends={friends}
-        pendingRequestsCount={incomingCount}
+        pendingRequestsCount={0}
         groups={groups}
       />
     </AppShell>

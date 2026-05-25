@@ -1,5 +1,4 @@
 import { AppShell } from "@/components/AppShell";
-import { StatsStrip } from "@/components/StatsStrip";
 import { HomeClient } from "./HomeClient";
 import { USE_MOCK_DATA } from "@/lib/config";
 import {
@@ -7,14 +6,14 @@ import {
   MOCK_CURRENT_USER,
   MOCK_INCOMING_FRIEND_REQUESTS,
 } from "@/lib/mock";
-import { getCurrentUser } from "@/lib/supabase/users";
-import { getFeedBets } from "@/lib/supabase/bets";
+import { getCurrentUserRow } from "@/lib/data/profile";
+import { getFeedBets } from "@/lib/data/bets";
 import { getUnreadCount } from "@/lib/supabase/notifications";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  let me = USE_MOCK_DATA ? MOCK_CURRENT_USER : await getCurrentUser();
+  let me = USE_MOCK_DATA ? MOCK_CURRENT_USER : await getCurrentUserRow();
   if (!me) me = MOCK_CURRENT_USER;
 
   const bets = USE_MOCK_DATA ? MOCK_BETS : await getFeedBets();
@@ -25,12 +24,12 @@ export default async function HomePage() {
   const activeCount = bets.filter((b) => b.status === "open" || b.status === "locked").length;
 
   return (
-    <AppShell title="Feed" unread={unread} pendingCount={activeCount}>
-      <StatsStrip
-        walletCents={me.wallet_balance_cents}
-        activeBets={activeCount}
-        totalWonCents={0 /* TODO: sum from resolved bets */}
-      />
+    <AppShell
+      title="Feed"
+      unread={unread}
+      pendingCount={activeCount}
+      walletCents={me.wallet_balance_cents}
+    >
       <HomeClient
         bets={bets}
         currentUser={{

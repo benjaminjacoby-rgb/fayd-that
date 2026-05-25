@@ -215,6 +215,18 @@ export interface RelationshipLabel {
 }
 
 /**
+ * Mediator state on a post.
+ *   - "self"      — poster decides outcome at resolution; mediator === poster
+ *   - "requested" — open request; anyone viewing the post can accept
+ *   - "accepted"  — someone (or the poster, when self-mediating) is locked in
+ * UI-only; the eventual backend will model this via the existing mediations table.
+ */
+export interface MediatorState {
+  mode: "self" | "requested" | "accepted";
+  mediator?: UserLite;
+}
+
+/**
  * Everything the Instagram-style PostCard needs that isn't already on
  * BetRow / BetView. Attached as an optional `post_meta` field on BetView
  * so we don't break Phase 1/2 pages that still read the older shape.
@@ -229,6 +241,12 @@ export interface PostMeta {
   comments: CommentView[];
   poll: PollView;
   sub_contracts: SubContractView[];
+  /** Absent when the poster declined to pick a mediator option. */
+  mediator?: MediatorState;
+  /** Optional explicit end date/time for the bet, set at post time. */
+  end_at?: string | null;
+  /** True once the poster or mediator has manually marked the bet concluded. */
+  concluded?: boolean;
 }
 
 // ────────────────────────────────────────────────

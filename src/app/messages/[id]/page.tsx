@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChatClient } from "./ChatClient";
 import { BottomNav } from "@/components/BottomNav";
+import { USE_MOCK_DATA } from "@/lib/config";
 import {
   MOCK_BETS,
   MOCK_CURRENT_USER,
@@ -10,32 +11,75 @@ import {
   mockMessagesFor,
   mockShareableBetsForCurrentUser,
 } from "@/lib/mock";
-import type { BetView } from "@/types/db";
+import { getCurrentUserRow } from "@/lib/data/profile";
+import { getConversationById } from "@/lib/data/messages";
+import { getFeedBets } from "@/lib/data/bets";
+import type { BetView, ConversationView } from "@/types/db";
 
 export const dynamic = "force-dynamic";
 
-export default function ChatPage({ params }: { params: { id: string } }) {
-  const conversation = mockConversationById(params.id);
-  if (!conversation) notFound();
+export default async function ChatPage({ params }: { params: { id: string } }) {
+  if (USE_MOCK_DATA) {
+    const conversation = mockConversationById(params.id);
+    if (!conversation) notFound();
+    const messages = mockMessagesFor(params.id);
+    const referencedIds = new Set<string>();
+    for (const m of messages) {
+      if (m.kind === "bet" && m.bet_id) referencedIds.add(m.bet_id);
+    }
+    const referencedBets: BetView[] = [];
+    for (const id of referencedIds) {
+      const b = mockBetById(id);
+      if (b) referencedBets.push(b);
+    }
+    const shareable = mockShareableBetsForCurrentUser();
+    const activeCount = MOCK_BETS.filter(
+      (b) => b.status === "open" || b.status === "locked",
+    ).length;
+    const me = MOCK_CURRENT_USER;
 
-  const messages = mockMessagesFor(params.id);
-  // Build a map of all bets referenced by `bet` messages so the chat can
-  // render full PostCards inline without re-fetching.
+    return (
+      <>
+        <ChatHeader title={conversation.title} subtitle={subtitleFor(conversation)} pendingCount={activeCount} />
+        <main className="flex-1 flex flex-col bg-bg pb-0">
+          <ChatClient
+            conversation={conversation}
+            initialMessages={messages}
+            initialBets={referencedBets}
+            shareableBets={shareable}
+            currentUser={{
+              id: me.id,
+              first_name: me.first_name,
+              last_name_initial: me.last_name_initial,
+              username: me.username,
+              avatar_color: me.avatar_color,
+            }}
+          />
+        </main>
+        <BottomNav />
+      </>
+    );
+  }
+
+  const result = await getConversationById(params.id);
+  if (!result) notFound();
+  const { conversation, messages } = result;
+
+  // Pull bets referenced by `bet` messages so the inline PostCards render.
   const referencedIds = new Set<string>();
   for (const m of messages) {
     if (m.kind === "bet" && m.bet_id) referencedIds.add(m.bet_id);
   }
-  const referencedBets: BetView[] = [];
-  for (const id of referencedIds) {
-    const b = mockBetById(id);
-    if (b) referencedBets.push(b);
-  }
-  const shareable = mockShareableBetsForCurrentUser();
-  const activeCount = MOCK_BETS.filter(
-    (b) => b.status === "open" || b.status === "locked",
-  ).length;
-
-  const me = MOCK_CURRENT_USER;
+  const allBets = await getFeedBets();
+  const referencedBets = allBets.filter((b) => referencedIds.has(b.id));
+  // Anything live the user could share into this thread.
+  const me = (await getCurrentUserRow()) ?? MOCK_CURRENT_USER;
+  const shareable = allBets.filter(
+    (b) =>
+      (b.creator_id === me.id || (b.contracts ?? []).some((c) => c.yes_user_id === me.id || c.no_user_id === me.id)) &&
+      (b.status === "open" || b.status === "locked"),
+  );
+  const activeCount = allBets.filter((b) => b.status === "open" || b.status === "locked").length;
 
   return (
     <>
@@ -60,7 +104,7 @@ export default function ChatPage({ params }: { params: { id: string } }) {
   );
 }
 
-function subtitleFor(c: ReturnType<typeof mockConversationById>): string | undefined {
+function subtitleFor(c: ConversationView | undefined): string | undefined {
   if (!c) return undefined;
   if (c.kind === "group" && c.group) return `${c.group.member_count} members`;
   if (c.kind === "dm" && c.other_user?.username) return `@${c.other_user.username}`;
@@ -76,7 +120,6 @@ function ChatHeader({
   subtitle?: string;
   pendingCount: number;
 }) {
-  // Custom TopBar replacement: includes a back link and a stacked title/subtitle.
   return (
     <header className="sticky top-0 z-30 bg-bg/95 backdrop-blur border-b border-bg2">
       <div className="flex items-center gap-2 px-2 py-3">
@@ -100,7 +143,6 @@ function ChatHeader({
 }
 
 function TopBarHeader({ pendingCount }: { pendingCount: number }) {
-  // Reuses the same controls as the standard TopBar to keep parity.
   return (
     <div className="flex items-center gap-2">
       <Link
@@ -121,4 +163,3 @@ function TopBarHeader({ pendingCount }: { pendingCount: number }) {
     </div>
   );
 }
-

@@ -1,45 +1,65 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Avatar } from "@/components/Avatar";
 import { Button } from "@/components/ui/Button";
 import { Toast } from "@/components/Toast";
+import { USE_MOCK_DATA } from "@/lib/config";
 import { MOCK_CURRENT_USER } from "@/lib/mock";
 import { fullName } from "@/lib/format";
+import { createGroup as createGroupRemote } from "@/lib/data/groupsClient";
 import type { GroupView } from "@/types/db";
 
 type Sheet = null | "create" | "join";
 
 export function GroupsClient({ initialGroups }: { initialGroups: GroupView[] }) {
+  const router = useRouter();
   const [groups, setGroups] = useState<GroupView[]>(initialGroups);
   const [sheet, setSheet] = useState<Sheet>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  function createGroup(name: string) {
-    const code = randomCode();
-    const id = `g-new-${Date.now()}`;
-    const me = MOCK_CURRENT_USER;
-    const view: GroupView = {
-      id,
-      name: name.trim(),
-      invite_code: code,
-      admin_id: me.id,
-      created_at: new Date().toISOString(),
-      admin: {
-        id: me.id,
-        first_name: me.first_name,
-        last_name_initial: me.last_name_initial,
-        username: me.username,
-        avatar_color: me.avatar_color,
-      },
-      member_count: 1,
-      is_admin: true,
-      pending_join_count: 0,
-    };
-    setGroups((xs) => [view, ...xs]);
-    setSheet(null);
-    setToast(`Group created · code ${code}`);
+  async function createGroup(name: string, invitedUserIds: string[] = []) {
+    if (USE_MOCK_DATA) {
+      const code = randomCode();
+      const id = `g-new-${Date.now()}`;
+      const me = MOCK_CURRENT_USER;
+      const view: GroupView = {
+        id,
+        name: name.trim(),
+        invite_code: code,
+        admin_id: me.id,
+        created_at: new Date().toISOString(),
+        admin: {
+          id: me.id,
+          first_name: me.first_name,
+          last_name_initial: me.last_name_initial,
+          username: me.username,
+          avatar_color: me.avatar_color,
+        },
+        member_count: 1,
+        is_admin: true,
+        pending_join_count: 0,
+      };
+      setGroups((xs) => [view, ...xs]);
+      setSheet(null);
+      setToast(`Group created · code ${code}`);
+      return;
+    }
+    setBusy(true);
+    try {
+      const view = await createGroupRemote({ name, invitedUserIds });
+      setGroups((xs) => [view, ...xs]);
+      setSheet(null);
+      setToast(`Group created · code ${view.invite_code}`);
+      router.refresh();
+    } catch (e) {
+      setToast(e instanceof Error ? `Couldn't create group · ${e.message}` : "Couldn't create group");
+    } finally {
+      setBusy(false);
+    }
   }
 
   function joinByCode(code: string) {

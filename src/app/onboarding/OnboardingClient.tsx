@@ -7,6 +7,13 @@ import { Avatar } from "@/components/Avatar";
 import { Button } from "@/components/ui/Button";
 import { AVATAR_COLORS } from "@/lib/avatar";
 import { USE_MOCK_DATA } from "@/lib/config";
+import {
+  fetchMatchedContacts,
+  setContactsPermission,
+  type MatchedContact,
+} from "@/lib/contacts";
+
+type Step = "profile" | "contacts" | "matches";
 
 export function OnboardingClient() {
   const router = useRouter();
@@ -16,6 +23,10 @@ export function OnboardingClient() {
   const [color, setColor] = useState<string>(AVATAR_COLORS[0]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [step, setStep] = useState<Step>("profile");
+  const [matches, setMatches] = useState<MatchedContact[]>([]);
+  const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
+  const [contactsBusy, setContactsBusy] = useState(false);
 
   const valid =
     first.trim().length > 0 &&
@@ -27,7 +38,7 @@ export function OnboardingClient() {
     setBusy(true);
     try {
       if (USE_MOCK_DATA) {
-        router.push("/");
+        setStep("contacts");
         return;
       }
       const supabase = createClient();
@@ -38,19 +49,106 @@ export function OnboardingClient() {
 
       const { error } = await supabase.from("users").upsert({
         id: user.id,
-        phone: user.phone ?? "",
-        first_name: first.trim(),
-        last_name_initial: last.trim().slice(0, 1).toUpperCase(),
+        phone_number: user.phone ?? "",
+        full_name: `${first.trim()} ${last.trim().slice(0, 1).toUpperCase()}`.trim(),
         username: username.toLowerCase().trim(),
-        avatar_color: color,
+        avatar_url: null,
       });
       if (error) throw error;
-      router.push("/");
+      setStep("contacts");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save profile");
     } finally {
       setBusy(false);
     }
+  }
+
+  async function allowContacts() {
+    setContactsBusy(true);
+    try {
+      setContactsPermission("granted");
+      const result = await fetchMatchedContacts();
+      setMatches(result);
+      setStep("matches");
+    } finally {
+      setContactsBusy(false);
+    }
+  }
+
+  function skipContacts() {
+    setContactsPermission("denied");
+    router.push("/");
+  }
+
+  function addContactFriend(id: string) {
+    setAddedIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }
+
+  if (step === "contacts") {
+    return (
+      <div className="flex-1 flex flex-col px-6 pt-12">
+        <h1 className="text-2xl font-bold">Find friends from your contacts</h1>
+        <p className="text-text2 text-sm mt-3 mb-8">
+          Fayd will match your contacts' phone numbers to find friends already on
+          the app. Your contacts are never stored or shared.
+        </p>
+        <div className="flex flex-col gap-3 mt-auto pb-8">
+          <Button full disabled={contactsBusy} onClick={allowContacts}>
+            {contactsBusy ? "Matching…" : "Allow access"}
+          </Button>
+          <button
+            onClick={skipContacts}
+            className="text-text2 text-sm py-3 hover:text-text"
+          >
+            Skip for now
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === "matches") {
+    return (
+      <div className="flex-1 flex flex-col px-6 pt-12">
+        <h1 className="text-2xl font-bold">Your contacts on Fayd</h1>
+        <p className="text-text2 text-sm mt-1 mb-6">
+          We found {matches.length} {matches.length === 1 ? "person" : "people"} you may know.
+        </p>
+        <ul className="flex flex-col divide-y divide-bg3">
+          {matches.map((m) => (
+            <li key={m.id} className="flex items-center gap-3 py-3">
+              <Avatar
+                first={m.user.first_name}
+                lastInitial={m.user.last_name_initial}
+                color={m.user.avatar_color}
+                size={40}
+              />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium truncate">{m.name}</div>
+                <div className="text-text3 text-xs font-mono">{m.phone}</div>
+              </div>
+              {addedIds.has(m.id) ? (
+                <span className="text-[11px] text-text3 italic">Requested</span>
+              ) : (
+                <button
+                  onClick={() => addContactFriend(m.id)}
+                  className="rounded-pill bg-yes text-bg text-xs font-semibold px-3 py-1.5 hover:brightness-110"
+                >
+                  Add friend
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+        <div className="mt-auto pb-8 pt-6">
+          <Button full onClick={() => router.push("/")}>Continue</Button>
+        </div>
+      </div>
+    );
   }
 
   return (

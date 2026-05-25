@@ -17,12 +17,13 @@ const TABS: Tab[] = [
   { href: "/",         label: "Home",       icon: <HomeIcon /> },
   { href: "/groups",   label: "Groups",     icon: <PeopleIcon />, prefixMatch: true },
   { href: "/create",   label: "Post a Bet", icon: <PlusIcon />, center: true },
-  { href: "/messages", label: "Messages",   icon: <ChatIcon />, prefixMatch: true },
+  { href: "/pending",  label: "Pending",    icon: <ClockIcon />, prefixMatch: true },
   { href: "/profile",  label: "Profile",    icon: <PersonIcon /> },
 ];
 
 export function BottomNav() {
   const pathname = usePathname();
+
   return (
     <nav className="sticky bottom-0 z-30 w-full bg-bg2/95 backdrop-blur border-t border-bg3">
       <ul className="flex items-center justify-between px-3 pt-2 pb-3">
@@ -51,7 +52,9 @@ export function BottomNav() {
                   active ? "text-yes" : "text-text3"
                 }`}
               >
-                <span className="w-6 h-6">{t.icon}</span>
+                <span className="relative w-6 h-6">
+                  {t.icon}
+                </span>
                 {t.label}
               </Link>
             </li>
@@ -86,10 +89,11 @@ function PlusIcon() {
     </svg>
   );
 }
-function ChatIcon() {
+function ClockIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z" />
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
     </svg>
   );
 }

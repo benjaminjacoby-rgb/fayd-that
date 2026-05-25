@@ -15,20 +15,35 @@ import {
   USE_MOCK_DATA,
 } from "@/lib/config";
 import { formatCents, fullName, payoutPreview } from "@/lib/format";
-import type { BetCategory, BetScope, GroupRow, StakeTierCents, UserRow } from "@/types/db";
+import { addChatMessage, addMyPost } from "@/lib/sessionState";
+import { insertNotification } from "@/lib/data/notificationsClient";
+import type {
+  BetCategory,
+  BetScope,
+  BetView,
+  ChatMessageView,
+  GroupRow,
+  MediatorState,
+  StakeTierCents,
+  UserLite,
+  UserRow,
+} from "@/types/db";
 
 const CATEGORIES: BetCategory[] = ["fitness", "academics", "social", "finance", "other"];
 
 type EscrowMode = "fayd" | "mediator";
+type MediatorChoice = "none" | "self" | "request";
 
 export function CreateBetClient({
   walletCents,
   friends,
   groups,
+  currentUser,
 }: {
   walletCents: number;
   friends: UserRow[];
   groups: GroupRow[];
+  currentUser: UserLite;
 }) {
   const router = useRouter();
   const [question, setQuestion] = useState("");
@@ -42,8 +57,19 @@ export function CreateBetClient({
   const [targetFriendIds, setTargetFriendIds] = useState<string[]>([]);
   const [escrow, setEscrow] = useState<EscrowMode>("fayd");
   const [mediatorId, setMediatorId] = useState<string | null>(null);
+  const [mediatorChoice, setMediatorChoice] = useState<MediatorChoice>("none");
+  const [endAt, setEndAt] = useState<string>(""); // local datetime-input value
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Mediator picker is only meaningful for wider audiences:
+  //   - posting to a group
+  //   - posting to "all friends" (scope=friends, no specific targets)
+  //   - targeting more than 2 specific friends
+  const showMediatorPicker =
+    scope === "group" ||
+    (scope === "friends" && targetFriendIds.length === 0) ||
+    (scope === "friends" && targetFriendIds.length > 2);
 
   const stakeCents = stakeTier;
   const payouts = useMemo(() => payoutPreview(stakeCents, yesProbability), [stakeCents, yesProbability]);
@@ -60,10 +86,76 @@ export function CreateBetClient({
     setBusy(true);
     try {
       const expiry_at = new Date(Date.now() + expiryHours * 3600_000).toISOString();
+      const effectiveMediatorChoice: MediatorChoice = showMediatorPicker ? mediatorChoice : "none";
+      const mediatorState: MediatorState | undefined =
+        effectiveMediatorChoice === "self"
+          ? { mode: "accepted", mediator: currentUser }
+          : effectiveMediatorChoice === "request"
+            ? { mode: "requested" }
+            : undefined;
+      const endAtIso = endAt ? new Date(endAt).toISOString() : null;
       if (USE_MOCK_DATA) {
-        // Pretend it worked — bounce back to feed.
+        // Seed the session store so the new bet shows up immediately on:
+        //   - the Pending page (My Posts section)
+        //   - the corresponding group chat (auto-posted as a bet card)
+        const newBet: BetView = {
+          id: `b-new-${Date.now()}`,
+          creator_id: currentUser.id,
+          question: question.trim(),
+          category,
+          yes_probability: yesProbability,
+          stake_cents: stakeCents,
+          expiry_at,
+          resolution_notes: null,
+          status: "open",
+          scope,
+          group_id: scope === "group" ? groupId : null,
+          geo_lat: null,
+          geo_lng: null,
+          geo_radius_meters: scope === "geo" ? radius : null,
+          created_at: new Date().toISOString(),
+          resolved_at: null,
+          creator: currentUser,
+          participants: [],
+          contracts: [],
+          open_negotiations: [],
+          post_meta: {
+            relationship: { kind: "self", label: "You" },
+            poster_side: "yes",
+            original_filled_cents: 0,
+            reactions: [],
+            comments: [],
+            poll: { yes_votes: 0, no_votes: 0, my_vote: null },
+            sub_contracts: [],
+            mediator: mediatorState,
+            end_at: endAtIso,
+            concluded: false,
+          },
+        };
+        addMyPost(newBet);
+        if (scope === "group" && groupId) {
+          const msg: ChatMessageView = {
+            id: `m-auto-${newBet.id}`,
+            conversation_id: groupId,
+            sender: currentUser,
+            kind: "bet",
+            bet_id: newBet.id,
+            created_at: new Date().toISOString(),
+          };
+          addChatMessage(groupId, msg);
+        }
         router.push("/");
         return;
+      }
+      // Best-effort: notify the assigned mediator. Fires regardless of whether
+      // the bet-create API call below succeeds — the actual mediator-assigned
+      // event should ideally be emitted by a DB trigger once that API exists.
+      if (escrow === "mediator" && mediatorId) {
+        void insertNotification({
+          userId: mediatorId,
+          type: "mediator_assigned",
+          referenceType: "bet",
+        });
       }
       // TODO: wire this to a server action that calls createBet() + holdStakeForBet().
       const res = await fetch("/api/bets", {
@@ -243,6 +335,48 @@ export function CreateBetClient({
           ) : (
             <p className="text-text3 text-xs mt-3">Add friends to assign a mediator.</p>
           )
+        ) : null}
+      </Section>
+
+      {showMediatorPicker ? (
+        <Section label="Select mediator">
+          <div className="grid grid-cols-2 gap-2">
+            <ScopeOption
+              active={mediatorChoice === "self"}
+              onClick={() => setMediatorChoice(mediatorChoice === "self" ? "none" : "self")}
+              label="Self-mediate"
+            />
+            <ScopeOption
+              active={mediatorChoice === "request"}
+              onClick={() => setMediatorChoice(mediatorChoice === "request" ? "none" : "request")}
+              label="Request mediator"
+            />
+          </div>
+          <p className="text-text3 text-[11px] mt-2">
+            {mediatorChoice === "self"
+              ? "You'll decide the outcome at resolution."
+              : mediatorChoice === "request"
+                ? "Anyone viewing the post can accept the mediator role."
+                : "Optional — pick a mediator to decide the outcome."}
+          </p>
+        </Section>
+      ) : null}
+
+      <Section label="Set end date (optional)">
+        <input
+          type="datetime-local"
+          value={endAt}
+          onChange={(e) => setEndAt(e.target.value)}
+          className="bg-bg3 rounded-input px-3 py-2.5 w-full outline-none focus:ring-2 focus:ring-yes/40 text-sm"
+        />
+        {endAt ? (
+          <button
+            type="button"
+            onClick={() => setEndAt("")}
+            className="text-text3 text-[11px] mt-2 hover:text-text2"
+          >
+            Clear end date
+          </button>
         ) : null}
       </Section>
 

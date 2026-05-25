@@ -16,7 +16,18 @@ export default async function CreatePage() {
 
   return (
     <AppShell title="Post a Bet">
-      <CreateBetClient walletCents={me.wallet_balance_cents} friends={friends} groups={groups} />
+      <CreateBetClient
+        walletCents={me.wallet_balance_cents}
+        friends={friends}
+        groups={groups}
+        currentUser={{
+          id: me.id,
+          first_name: me.first_name,
+          last_name_initial: me.last_name_initial,
+          username: me.username,
+          avatar_color: me.avatar_color,
+        }}
+      />
     </AppShell>
   );
 }

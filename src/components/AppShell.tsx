@@ -6,17 +6,20 @@ export function AppShell({
   title,
   unread = 0,
   pendingCount = 0,
+  walletCents,
   children,
 }: {
   title: string;
   unread?: number;
   /** Surfaces as the badge on the clock icon in the top bar. */
   pendingCount?: number;
+  /** When provided, the top bar switches to home mode (Balance + Messages button on the right). */
+  walletCents?: number;
   children: ReactNode;
 }) {
   return (
     <>
-      <TopBar title={title} unread={unread} pendingCount={pendingCount} />
+      <TopBar title={title} unread={unread} pendingCount={pendingCount} walletCents={walletCents} />
       <main className="flex-1 pb-4">{children}</main>
       <BottomNav />
     </>

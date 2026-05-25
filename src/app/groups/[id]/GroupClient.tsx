@@ -127,6 +127,7 @@ export function GroupClient({
                 <PostCard
                   bet={b}
                   currentUserId={currentUser.id}
+                  currentUser={currentUser}
                   onFaydThat={() => setFaydSheet({ betId: b.id, subContractId: null })}
                   onCounter={(bet) =>
                     setStartSheet({ betId: bet.id, initialYesProbability: bet.yes_probability })
@@ -135,6 +136,8 @@ export function GroupClient({
                   onStartNewContract={(bet) => setStartSheet({ betId: bet.id })}
                   onReact={handlers.onReact}
                   onVote={handlers.onVote}
+                  onAcceptMediator={handlers.onAcceptMediator}
+                  onMarkConcluded={handlers.onMarkConcluded}
                   onOpenSubContract={(bet, subContractId) =>
                     setFaydSheet({ betId: bet.id, subContractId })
                   }

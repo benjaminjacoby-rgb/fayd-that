@@ -1,126 +1,183 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Avatar } from "@/components/Avatar";
-import { Button } from "@/components/ui/Button";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { CategoryPill } from "@/components/CategoryPill";
-import { formatCents, formatTimeRemaining, fullName } from "@/lib/format";
-import type { BetSide, BetView } from "@/types/db";
+import { formatCents, formatTimeRemaining } from "@/lib/format";
+import {
+  getMyActiveContracts,
+  getMyPosts,
+  useSessionStore,
+  type MyPostView,
+  type PendingContractView,
+} from "@/lib/sessionState";
+import type { UserLite } from "@/types/db";
 
-type Status = "awaiting_payment" | "locked" | "awaiting_outcome" | "disputed";
+export function PendingClient({ currentUser: _currentUser }: { currentUser: UserLite }) {
+  useSessionStore(); // re-render on session-store changes
+  // Defer reading store state until after mount so SSR + hydration match.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
-function statusFor(bet: BetView, userId: string, now: number): Status {
-  if (bet.status === "disputed") return "disputed";
-  const me = bet.participants.find((p) => p.user_id === userId);
-  if (me && !me.paid_at) return "awaiting_payment";
-  const expired = new Date(bet.expiry_at).getTime() < now;
-  return expired ? "awaiting_outcome" : "locked";
-}
+  const actives: PendingContractView[] = mounted ? getMyActiveContracts() : [];
+  const posts: MyPostView[] = mounted ? getMyPosts() : [];
 
-const STATUS_META: Record<Status, { label: string; cls: string }> = {
-  awaiting_payment: { label: "Awaiting payment", cls: "bg-orange/20 text-orange" },
-  locked:           { label: "Locked",            cls: "bg-yes/20 text-yes" },
-  awaiting_outcome: { label: "Confirm outcome",   cls: "bg-gold/20 text-gold" },
-  disputed:         { label: "Disputed",          cls: "bg-no/20 text-no" },
-};
-
-export function PendingClient({
-  bets,
-  currentUserId,
-}: {
-  bets: BetView[];
-  currentUserId: string;
-}) {
-  const now = Date.now();
-  const rows = useMemo(() => bets.map((b) => ({ bet: b, status: statusFor(b, currentUserId, now) })), [bets, currentUserId, now]);
-  const [busyId, setBusyId] = useState<string | null>(null);
-
-  async function pay(_betId: string) {
-    setBusyId(_betId);
-    // TODO: server action — call holdStakeForBet(); refresh page.
-    setTimeout(() => setBusyId(null), 600);
-  }
-
-  async function confirmOutcome(_betId: string, _side: BetSide) {
-    setBusyId(_betId);
-    // TODO: server action — call submitOutcome(); refresh page.
-    setTimeout(() => setBusyId(null), 600);
-  }
-
-  if (rows.length === 0) {
-    return (
-      <div className="px-6 pt-16 text-center">
-        <div className="text-5xl mb-3">⏳</div>
-        <h2 className="text-lg font-semibold mb-1">No pending bets</h2>
-        <p className="text-text2 text-sm">Bets you're in will show up here until they resolve.</p>
-      </div>
-    );
+  if (mounted && actives.length === 0 && posts.length === 0) {
+    return <EmptyState />;
   }
 
   return (
-    <ul className="flex flex-col gap-3 px-4 pt-4">
-      {rows.map(({ bet, status }) => {
-        const meta = STATUS_META[status];
-        const myPart = bet.participants.find((p) => p.user_id === currentUserId);
-        const otherParts = bet.participants.filter((p) => p.user_id !== currentUserId);
-        return (
-          <li key={bet.id} className="bg-bg2 rounded-card p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <span className={`text-[11px] font-semibold uppercase rounded-pill px-2 py-0.5 ${meta.cls}`}>
-                {meta.label}
-              </span>
-              <CategoryPill category={bet.category} />
-              <span className="ml-auto text-xs text-text3 font-mono">{formatTimeRemaining(bet.expiry_at)}</span>
-            </div>
-            <p className="font-medium leading-snug">{bet.question}</p>
+    <div className="px-4 pt-4 pb-6 flex flex-col gap-6">
+      <section>
+        <SectionHeader title="Active" count={actives.length} />
+        {actives.length === 0 ? (
+          <p className="text-text3 text-sm italic mt-2">
+            Bets you've locked in this session will show up here.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-3 mt-3">
+            {actives.map((a) => (
+              <li key={a.id}>
+                <ActiveRow row={a} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
-            <div className="mt-3 flex items-center gap-2 flex-wrap text-xs text-text2">
-              <span>vs</span>
-              {otherParts.length === 0 ? (
-                <span className="text-text3">no one yet</span>
-              ) : (
-                otherParts.map((p) => (
-                  <span key={p.id} className="inline-flex items-center gap-1 bg-bg3 rounded-pill px-2 py-0.5">
-                    <Avatar first={p.user.first_name} lastInitial={p.user.last_name_initial} color={p.user.avatar_color} size={18} />
-                    {fullName(p.user)}
-                  </span>
-                ))
-              )}
-            </div>
+      <section>
+        <SectionHeader title="My Posts" count={posts.length} />
+        {posts.length === 0 ? (
+          <p className="text-text3 text-sm italic mt-2">
+            Bets you create will show up here.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-3 mt-3">
+            {posts.map((p) => (
+              <li key={p.bet.id}>
+                <PostRow row={p} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
+  );
+}
 
-            <div className="mt-3 flex items-center gap-3 text-xs">
-              <span className="text-text3">Your side</span>
-              <span className={`font-semibold uppercase rounded-pill px-2 py-0.5 ${myPart?.side === "yes" ? "bg-yes/20 text-yes" : "bg-no/20 text-no"}`}>
-                {myPart?.side ?? "—"}
-              </span>
-              <span className="ml-auto font-mono text-gold">{formatCents(myPart?.stake_cents ?? 0)} staked</span>
-            </div>
+function SectionHeader({ title, count }: { title: string; count: number }) {
+  return (
+    <div className="flex items-baseline gap-2">
+      <h2 className="text-xs uppercase tracking-wide text-text3 font-bold">{title}</h2>
+      {count > 0 ? (
+        <span className="text-[11px] font-mono text-text3">· {count}</span>
+      ) : null}
+    </div>
+  );
+}
 
-            {status === "awaiting_payment" ? (
-              <Button full className="mt-4" disabled={busyId === bet.id} onClick={() => pay(bet.id)}>
-                Pay {formatCents(myPart?.stake_cents ?? 0)} to lock
-              </Button>
-            ) : null}
+function ActiveRow({ row }: { row: PendingContractView }) {
+  const { bet, side, yesPercent, stakeCents } = row;
+  // Display the taker's odds — flip if user is on NO.
+  const userOdds = side === "yes" ? yesPercent : 100 - yesPercent;
+  const sideClass = side === "yes" ? "bg-yes/20 text-yes" : "bg-no/20 text-no";
+  return (
+    <article className="bg-bg2 rounded-card p-4">
+      <div className="flex items-center gap-2 mb-2">
+        <CategoryPill category={bet.category} />
+        {row.source === "session" ? (
+          <span className="text-[10px] uppercase tracking-wide bg-yes/20 text-yes rounded-pill px-1.5 py-px font-semibold">
+            new
+          </span>
+        ) : null}
+        <span className="ml-auto text-xs text-text3 font-mono">
+          {formatTimeRemaining(bet.expiry_at)}
+        </span>
+      </div>
+      <p className="font-medium leading-snug">{bet.question}</p>
 
-            {status === "awaiting_outcome" ? (
-              <div className="grid grid-cols-2 gap-2 mt-4">
-                <Button variant="yes" disabled={busyId === bet.id} onClick={() => confirmOutcome(bet.id, "yes")}>
-                  YES happened
-                </Button>
-                <Button variant="no" disabled={busyId === bet.id} onClick={() => confirmOutcome(bet.id, "no")}>
-                  NO happened
-                </Button>
-              </div>
-            ) : null}
+      <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+        <Stat label="Your side">
+          <span className={`text-[11px] font-bold uppercase rounded-pill px-2 py-0.5 ${sideClass}`}>
+            {side}
+          </span>
+        </Stat>
+        <Stat label="Your odds">
+          <span className="font-mono text-text">{userOdds}%</span>
+        </Stat>
+        <Stat label="Stake">
+          <span className="font-mono text-gold">{formatCents(stakeCents)}</span>
+        </Stat>
+      </div>
+    </article>
+  );
+}
 
-            {status === "disputed" ? (
-              <p className="mt-3 text-xs text-text2">
-                Your mediator has been notified and will rule on the outcome.
-              </p>
-            ) : null}
-          </li>
-        );
-      })}
-    </ul>
+function PostRow({ row }: { row: MyPostView }) {
+  const { bet } = row;
+  const filled = bet.post_meta?.original_filled_cents ?? 0;
+  const remaining = Math.max(0, bet.stake_cents - filled);
+  const filledPct = bet.stake_cents > 0 ? Math.round((filled / bet.stake_cents) * 100) : 0;
+  // Each contract with negotiation_id null is a fill on the original line.
+  const fillCount = (bet.contracts ?? []).filter((c) => c.negotiation_id === null).length;
+  return (
+    <article className="bg-bg2 rounded-card p-4">
+      <div className="flex items-center gap-2 mb-2">
+        <CategoryPill category={bet.category} />
+        {row.source === "session" ? (
+          <span className="text-[10px] uppercase tracking-wide bg-yes/20 text-yes rounded-pill px-1.5 py-px font-semibold">
+            new
+          </span>
+        ) : null}
+        <span className="ml-auto text-xs text-text3 font-mono">
+          {formatTimeRemaining(bet.expiry_at)}
+        </span>
+      </div>
+      <p className="font-medium leading-snug">{bet.question}</p>
+
+      <div className="mt-3 flex items-center justify-between text-xs">
+        {remaining > 0 ? (
+          <span className="text-yes font-bold font-mono text-base">
+            {formatCents(remaining)} still open
+          </span>
+        ) : (
+          <span className="text-text3 font-bold text-base">fully filled</span>
+        )}
+        <span className="text-text3">
+          {fillCount} {fillCount === 1 ? "person" : "people"} fayded
+        </span>
+      </div>
+
+      <div className="mt-2 h-1 w-full rounded-pill bg-bg3 overflow-hidden">
+        <div className="h-full bg-yes/60" style={{ width: `${filledPct}%` }} />
+      </div>
+    </article>
+  );
+}
+
+function Stat({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="bg-bg3 rounded-input px-2.5 py-1.5">
+      <div className="text-[10px] uppercase tracking-wide text-text3">{label}</div>
+      <div className="mt-0.5">{children}</div>
+    </div>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div className="px-6 pt-16 text-center">
+      <div className="text-5xl mb-3">⏳</div>
+      <h2 className="text-lg font-semibold mb-1">No pending activity</h2>
+      <p className="text-text2 text-sm mb-6">
+        Bets you join or post will show up here.
+      </p>
+      <Link
+        href="/"
+        className="inline-block bg-yes text-bg font-semibold px-5 py-3 rounded-input"
+      >
+        Browse the feed
+      </Link>
+    </div>
   );
 }

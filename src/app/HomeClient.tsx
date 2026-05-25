@@ -1,12 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { PostCard } from "@/components/PostCard";
 import { FaydThatSheet } from "@/components/FaydThatSheet";
 import { StartNewContractSheet } from "@/components/StartNewContractSheet";
 import { Toast } from "@/components/Toast";
+import { addMyActiveContract } from "@/lib/sessionState";
 import { formatCents } from "@/lib/format";
+import { USE_MOCK_DATA } from "@/lib/config";
+import { insertNotification } from "@/lib/data/notificationsClient";
 import type {
   BetSide,
   BetView,
@@ -27,10 +31,36 @@ export function HomeClient({
   bets: BetView[];
   currentUser: UserLite;
 }) {
+  const router = useRouter();
   const [bets, setBets] = useState<BetView[]>(initialBets);
   const [faydSheet, setFaydSheet] = useState<FaydSheetState>(null);
   const [startSheet, setStartSheet] = useState<StartSheetState>(null);
   const [toast, setToast] = useState<string | null>(null);
+
+  // Keep local state aligned with server-fetched bets when the page is
+  // re-rendered (e.g. via router.refresh on focus).
+  useEffect(() => {
+    setBets(initialBets);
+  }, [initialBets]);
+
+  // Refresh-on-focus: when the user navigates back to home or the tab regains
+  // focus, ask Next.js to re-fetch the server component, which feeds new
+  // bets back in through `initialBets`.
+  useEffect(() => {
+    if (USE_MOCK_DATA) return;
+    function refresh() {
+      router.refresh();
+    }
+    window.addEventListener("focus", refresh);
+    const onVis = () => {
+      if (!document.hidden) refresh();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [router]);
 
   const faydBet = useMemo(
     () => (faydSheet ? bets.find((b) => b.id === faydSheet.betId) ?? null : null),
@@ -63,12 +93,15 @@ export function HomeClient({
             <PostCard
               bet={b}
               currentUserId={currentUser.id}
+              currentUser={currentUser}
               onFaydThat={() => setFaydSheet({ betId: b.id, subContractId: null })}
               onCounter={(bet) => setStartSheet({ betId: bet.id, initialYesProbability: bet.yes_probability })}
               onComment={() => setToast("Comments coming soon")}
               onStartNewContract={(bet) => setStartSheet({ betId: bet.id })}
               onReact={handlers.onReact}
               onVote={handlers.onVote}
+              onAcceptMediator={handlers.onAcceptMediator}
+              onMarkConcluded={handlers.onMarkConcluded}
               onOpenSubContract={(bet, subContractId) =>
                 setFaydSheet({ betId: bet.id, subContractId })
               }
@@ -125,6 +158,8 @@ function EmptyState() {
 export interface FeedHandlers {
   onReact: (bet: BetView, emoji: string) => void;
   onVote: (bet: BetView, side: BetSide) => void;
+  onAcceptMediator: (bet: BetView) => void;
+  onMarkConcluded: (bet: BetView) => void;
   onConfirmFill: (params: {
     bet: BetView;
     subContractId: string | null;
@@ -202,6 +237,9 @@ export function makeHandlers({
     const { bet, subContractId, side, amountCents } = params;
     if (subContractId) {
       // Filling a sub-contract.
+      let pushedYesProb = 0;
+      let pushedStake = 0;
+      let pushedContractId = "";
       updateBet(bet.id, (b) => {
         const meta = b.post_meta!;
         const sub = meta.sub_contracts.find((s) => s.id === subContractId);
@@ -220,16 +258,31 @@ export function makeHandlers({
           yesProb: sub.yes_probability,
           stakeCents: amountCents,
         });
+        pushedYesProb = sub.yes_probability;
+        pushedStake = amountCents;
+        pushedContractId = newContract.id;
         return {
           ...b,
           contracts: [newContract, ...(b.contracts ?? [])],
           post_meta: { ...meta, sub_contracts: newSubs },
         };
       });
+      if (pushedContractId) {
+        addMyActiveContract({
+          id: pushedContractId,
+          bet,
+          side,
+          yesPercent: pushedYesProb,
+          stakeCents: pushedStake,
+          createdAt: new Date().toISOString(),
+        });
+      }
       setToast(`Filled ${formatCents(amountCents)} on ${side.toUpperCase()}`);
       return;
     }
     // Filling the original line.
+    let pushedContractId = "";
+    let pushedStake = 0;
     updateBet(bet.id, (b) => {
       const meta = b.post_meta!;
       const cappedAmount = Math.min(amountCents, b.stake_cents - meta.original_filled_cents);
@@ -243,13 +296,34 @@ export function makeHandlers({
         yesProb: b.yes_probability,
         stakeCents: cappedAmount,
       });
+      pushedContractId = newContract.id;
+      pushedStake = cappedAmount;
       return {
         ...b,
         contracts: [newContract, ...(b.contracts ?? [])],
         post_meta: { ...meta, original_filled_cents: meta.original_filled_cents + cappedAmount },
       };
     });
+    if (pushedContractId) {
+      addMyActiveContract({
+        id: pushedContractId,
+        bet,
+        side,
+        yesPercent: bet.yes_probability,
+        stakeCents: pushedStake,
+        createdAt: new Date().toISOString(),
+      });
+    }
     setToast(`Filled ${formatCents(amountCents)} on ${side.toUpperCase()}`);
+    // Notify the original poster that someone faded their bet.
+    if (!USE_MOCK_DATA && bet.creator_id && bet.creator_id !== currentUser.id) {
+      insertNotification({
+        userId: bet.creator_id,
+        type: "bet_filled",
+        referenceId: bet.id,
+        referenceType: "bet",
+      }).catch(() => {});
+    }
   }
 
   function onPostSubContract(params: {
@@ -276,7 +350,45 @@ export function makeHandlers({
     setToast(`Posted · ${posterSide.toUpperCase()} @ ${yesProbability}% for ${formatCents(stakeCents)}`);
   }
 
-  return { onReact, onVote, onConfirmFill, onPostSubContract };
+  function onAcceptMediator(bet: BetView) {
+    updateBet(bet.id, (b) => {
+      const meta = b.post_meta!;
+      return {
+        ...b,
+        post_meta: {
+          ...meta,
+          mediator: { mode: "accepted", mediator: currentUser },
+        },
+      };
+    });
+    setToast("You're now mediating this bet");
+  }
+
+  function onMarkConcluded(bet: BetView) {
+    updateBet(bet.id, (b) => {
+      const meta = b.post_meta!;
+      return { ...b, post_meta: { ...meta, concluded: true } };
+    });
+    setToast("Bet marked as concluded");
+    // Notify everyone who filled this bet that it was resolved.
+    if (!USE_MOCK_DATA) {
+      const counterIds = new Set<string>();
+      for (const c of bet.contracts ?? []) {
+        if (c.yes_user_id && c.yes_user_id !== currentUser.id) counterIds.add(c.yes_user_id);
+        if (c.no_user_id && c.no_user_id !== currentUser.id) counterIds.add(c.no_user_id);
+      }
+      for (const uid of counterIds) {
+        insertNotification({
+          userId: uid,
+          type: "bet_resolved",
+          referenceId: bet.id,
+          referenceType: "bet",
+        }).catch(() => {});
+      }
+    }
+  }
+
+  return { onReact, onVote, onAcceptMediator, onMarkConcluded, onConfirmFill, onPostSubContract };
 }
 
 function buildContract(args: {
