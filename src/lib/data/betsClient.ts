@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/client";
 import { creditWalletCents, deductWalletCents } from "@/lib/data/walletClient";
+import { insertNotification } from "@/lib/data/notificationsClient";
 import type { BetCategory, BetScope, BetSide } from "@/types/db";
 
 export interface CreateBetInput {
@@ -15,7 +16,6 @@ export interface CreateBetInput {
   expires_at: string | null;
   scope: BetScope;
   group_id: string | null;
-  geo_radius_meters: number | null;
   mediator_id: string | null;
   target_friend_ids: string[];
   poster_side: BetSide;
@@ -28,9 +28,9 @@ export interface CreateBetInput {
  * UI's BetRow shape, so we translate at the boundary (stake in dollars,
  * uppercase position, audience_type, end_date).
  *
- * Note: target_friend_ids and geo_radius_meters / category / yes_probability
- * have no column in the current schema; they're dropped here. Persisting them
- * would require a follow-up migration.
+ * Note: target_friend_ids and category / yes_probability have no column in
+ * the current schema; they're dropped here. Persisting them would require a
+ * follow-up migration.
  */
 export async function createBet(input: CreateBetInput): Promise<string> {
   const supabase = createClient();
@@ -74,6 +74,21 @@ export async function createBet(input: CreateBetInput): Promise<string> {
     }));
     const { error: tgtErr } = await supabase.from("bet_targets").insert(targetRows);
     if (tgtErr) throw tgtErr;
+
+    // Fan out a "bet_targeted" notification to each recipient. insertNotification
+    // already short-circuits self-notifications, so passing the poster's own id
+    // (theoretically possible via a UI bug) won't ping them.
+    await Promise.all(
+      input.target_friend_ids.map((uid) =>
+        insertNotification({
+          userId: uid,
+          type: "bet_targeted",
+          actorId: authUser.id,
+          referenceId: (data as { id: string }).id,
+          referenceType: "bet",
+        }),
+      ),
+    );
   }
   // Create an originating contract for the poster reflecting their chosen
   // odds and stake so the feed's weighted-line math can pick it up. We also
@@ -195,6 +210,30 @@ export async function fillBet(
 
   // 4. Lock the stake in the filler's wallet.
   await deductWalletCents(stakeCents);
+
+  // 5. Notify the bet poster that someone fayded them. For sub-contract fills,
+  //    the recipient is the sub-contract creator (whoever posted that line);
+  //    for original-line fills, it's the bet poster. Self-fills are silently
+  //    skipped by insertNotification, so cancelling/topping-up your own bet
+  //    doesn't ping you.
+  let recipientId: string | null = bet.poster_id;
+  if (subContractId) {
+    const { data: subContract } = await supabase
+      .from("contracts")
+      .select("creator_id")
+      .eq("id", subContractId)
+      .maybeSingle();
+    recipientId = (subContract as { creator_id: string | null } | null)?.creator_id ?? null;
+  }
+  if (recipientId) {
+    await insertNotification({
+      userId: recipientId,
+      type: "bet_filled",
+      actorId: authUser.id,
+      referenceId: betId,
+      referenceType: "bet",
+    });
+  }
 }
 
 /**

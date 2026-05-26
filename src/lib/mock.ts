@@ -264,7 +264,7 @@ function subContract(
  * - friend scope → "Friend"
  * - group scope  → "from <group name>"
  */
-function relFor(creatorId: string, scope: "friends" | "group" | "geo", groupId: string | null): RelationshipLabel {
+function relFor(creatorId: string, scope: "friends" | "group", groupId: string | null): RelationshipLabel {
   if (creatorId === MOCK_CURRENT_USER.id) return { kind: "self", label: "You" };
   if (scope === "group" && groupId) return { kind: "group", label: `from ${groupNameById(groupId)}` };
   return { kind: "friend", label: "Friend" };
@@ -287,7 +287,6 @@ export const MOCK_BETS: BetView[] = [
     status: "open",
     scope: "friends",
     group_id: null,
-    geo_lat: null, geo_lng: null, geo_radius_meters: null,
     created_at: minutesAgo(14),
     resolved_at: null,
     creator: u("u-max"),
@@ -328,7 +327,6 @@ export const MOCK_BETS: BetView[] = [
     status: "open",
     scope: "friends",
     group_id: null,
-    geo_lat: null, geo_lng: null, geo_radius_meters: null,
     created_at: hoursAgo(5),
     resolved_at: null,
     creator: u("u-sarah"),
@@ -368,7 +366,6 @@ export const MOCK_BETS: BetView[] = [
     status: "locked",
     scope: "friends",
     group_id: null,
-    geo_lat: null, geo_lng: null, geo_radius_meters: null,
     created_at: hoursAgo(20),
     resolved_at: null,
     creator: u("mock-me"),
@@ -407,7 +404,6 @@ export const MOCK_BETS: BetView[] = [
     status: "locked",
     scope: "friends",
     group_id: null,
-    geo_lat: null, geo_lng: null, geo_radius_meters: null,
     created_at: hoursAgo(72),
     resolved_at: null,
     creator: u("u-noor"),
@@ -446,7 +442,6 @@ export const MOCK_BETS: BetView[] = [
     status: "open",
     scope: "friends",
     group_id: null,
-    geo_lat: null, geo_lng: null, geo_radius_meters: null,
     created_at: minutesAgo(220),
     resolved_at: null,
     creator: u("u-jay"),
@@ -488,7 +483,6 @@ export const MOCK_BETS: BetView[] = [
     status: "open",
     scope: "friends",
     group_id: null,
-    geo_lat: null, geo_lng: null, geo_radius_meters: null,
     created_at: hoursAgo(6),
     resolved_at: null,
     creator: u("u-noor"),
@@ -528,7 +522,6 @@ export const MOCK_BETS: BetView[] = [
     status: "open",
     scope: "group",
     group_id: "g-trading",
-    geo_lat: null, geo_lng: null, geo_radius_meters: null,
     created_at: hoursAgo(8),
     resolved_at: null,
     creator: u("mock-me"),
@@ -571,7 +564,6 @@ export const MOCK_BETS: BetView[] = [
     status: "open",
     scope: "group",
     group_id: "g-eh7",
-    geo_lat: null, geo_lng: null, geo_radius_meters: null,
     created_at: hoursAgo(3),
     resolved_at: null,
     creator: u("u-sarah"),

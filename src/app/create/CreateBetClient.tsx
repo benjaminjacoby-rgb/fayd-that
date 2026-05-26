@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/Button";
 import { Pill } from "@/components/ui/Pill";
 import {
   DEFAULT_STAKE_TIER,
-  GEO_RADIUS_OPTIONS_M,
   MAX_PROBABILITY,
   MIN_PROBABILITY,
   STAKE_TIERS,
@@ -85,7 +84,6 @@ export function CreateBetClient({
   const [posterSide, setPosterSide] = useState<BetSide>("yes");
   const [scope, setScope] = useState<BetScope>("friends");
   const [groupId, setGroupId] = useState<string | null>(null);
-  const [radius, setRadius] = useState<number>(500);
   const [targetFriendIds, setTargetFriendIds] = useState<string[]>([]);
   const [mediatorChoice, setMediatorChoice] = useState<MediatorChoice>("none");
   // YYYY-MM-DD or "" — sent through to Supabase as either ISO end-of-day or null.
@@ -154,9 +152,6 @@ export function CreateBetClient({
           status: "open",
           scope,
           group_id: scope === "group" ? groupId : null,
-          geo_lat: null,
-          geo_lng: null,
-          geo_radius_meters: scope === "geo" ? radius : null,
           expires_at,
           created_at: new Date().toISOString(),
           resolved_at: null,
@@ -209,7 +204,6 @@ export function CreateBetClient({
         expires_at,
         scope,
         group_id: scope === "group" ? groupId : null,
-        geo_radius_meters: scope === "geo" ? radius : null,
         mediator_id: null,
         target_friend_ids: targetFriendIds,
         poster_side: posterSide,
@@ -229,9 +223,6 @@ export function CreateBetClient({
         status: "open",
         scope,
         group_id: scope === "group" ? groupId : null,
-        geo_lat: null,
-        geo_lng: null,
-        geo_radius_meters: scope === "geo" ? radius : null,
         created_at: new Date().toISOString(),
         resolved_at: null,
         creator: currentUser,
@@ -320,10 +311,9 @@ export function CreateBetClient({
       </Section>
 
       <Section label="Who can see this?">
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 gap-2">
           <ScopeOption active={scope === "friends"} onClick={() => setScope("friends")} label="Friends" />
           <ScopeOption active={scope === "group"}   onClick={() => setScope("group")}   label="Group" />
-          <ScopeOption active={scope === "geo"}     onClick={() => setScope("geo")}     label="Near Me" />
         </div>
 
         {scope === "group" ? (
@@ -339,23 +329,8 @@ export function CreateBetClient({
               ))}
             </select>
           ) : (
-            <p className="mt-3 text-text3 text-xs">You're not in any groups yet — create one from Profile.</p>
+            <p className="mt-3 text-text3 text-xs">You&apos;re not in any groups yet — create one from Profile.</p>
           )
-        ) : null}
-
-        {scope === "geo" ? (
-          <div className="mt-3">
-            <div className="text-xs uppercase tracking-wide text-text3 mb-2">Radius</div>
-            <div className="flex gap-2">
-              {GEO_RADIUS_OPTIONS_M.map((m) => (
-                <Pill key={m} active={radius === m} onClick={() => setRadius(m)}>{m}m</Pill>
-              ))}
-            </div>
-            <div className="mt-3 bg-bg3 rounded-input h-32 flex items-center justify-center text-text3 text-xs">
-              {/* TODO: Phase 3 — Mapbox pin drop. */}
-              Map pin drop — coming in Phase 3
-            </div>
-          </div>
         ) : null}
       </Section>
 

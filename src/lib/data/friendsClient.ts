@@ -60,6 +60,7 @@ export async function sendFriendRequest(addresseeId: string): Promise<string> {
   await insertNotification({
     userId: addresseeId,
     type: "friend_request",
+    actorId: authUser.id,
     referenceId: data.id,
     referenceType: "friendship",
   });
@@ -87,6 +88,7 @@ export async function acceptFriendRequest(friendshipId: string): Promise<void> {
     await insertNotification({
       userId: data.requester_id,
       type: "friend_request_accepted",
+      actorId: authUser.id,
       referenceId: friendshipId,
       referenceType: "friendship",
     });

@@ -11,6 +11,7 @@ import {
   mockGroupView,
 } from "@/lib/mock";
 import { getGroupsForCurrentUser } from "@/lib/data/groups";
+import { getFriendsForCurrentUser } from "@/lib/data/profile";
 import { createClient } from "@/lib/supabase/server";
 import { pickAvatarColor } from "@/lib/avatar";
 import type { GroupView, UserLite } from "@/types/db";
@@ -34,6 +35,7 @@ export default async function GroupDetailPage({ params }: { params: { id: string
           initialMembers={members}
           initialPending={pending}
           bets={bets}
+          addableFriends={[]}
           currentUser={{
             id: MOCK_CURRENT_USER.id,
             first_name: MOCK_CURRENT_USER.first_name,
@@ -56,7 +58,22 @@ export default async function GroupDetailPage({ params }: { params: { id: string
     data: { user: authUser },
   } = await supabase.auth.getUser();
 
-  const members = await loadGroupMembers(params.id);
+  const [members, friendRows] = await Promise.all([
+    loadGroupMembers(params.id),
+    getFriendsForCurrentUser(),
+  ]);
+  // Friends the admin can add — anyone not already in the group.
+  const memberIds = new Set(members.map((m) => m.id));
+  const addableFriends: UserLite[] = friendRows
+    .filter((f) => !memberIds.has(f.id))
+    .map((f) => ({
+      id: f.id,
+      first_name: f.first_name,
+      last_name_initial: f.last_name_initial,
+      username: f.username,
+      avatar_color: f.avatar_color,
+      avatar_url: f.avatar_url ?? null,
+    }));
 
   return (
     <AppShell title={view.name}>
@@ -65,6 +82,7 @@ export default async function GroupDetailPage({ params }: { params: { id: string
         initialMembers={members}
         initialPending={[]}
         bets={[]}
+        addableFriends={addableFriends}
         currentUser={{
           id: authUser?.id ?? "",
           first_name: members.find((m) => m.id === authUser?.id)?.first_name ?? null,

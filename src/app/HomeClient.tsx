@@ -12,6 +12,7 @@ import { formatCents } from "@/lib/format";
 import { USE_MOCK_DATA } from "@/lib/config";
 import { insertNotification } from "@/lib/data/notificationsClient";
 import { cancelBet as cancelBetRemote, fillBet as fillBetRemote } from "@/lib/data/betsClient";
+import { toggleReaction } from "@/lib/data/reactionsClient";
 import type {
   BetSide,
   BetView,
@@ -201,9 +202,12 @@ export function makeHandlers({
   }
 
   function onReact(bet: BetView, emoji: string) {
+    // Optimistic toggle so the chip lights up immediately, then persist.
+    let nextReactedByMe = true;
     updateBet(bet.id, (b) => {
       const meta = b.post_meta!;
       const existing = meta.reactions.find((r) => r.emoji === emoji);
+      nextReactedByMe = !(existing?.reactedByMe ?? false);
       const next: Reaction[] = existing
         ? meta.reactions.map((r) =>
             r.emoji === emoji
@@ -212,6 +216,23 @@ export function makeHandlers({
           ).filter((r) => r.count > 0)
         : [...meta.reactions, { emoji, count: 1, reactedByMe: true }];
       return { ...b, post_meta: { ...meta, reactions: next } };
+    });
+    if (USE_MOCK_DATA) return;
+    // Persist. On failure roll the optimistic state back.
+    toggleReaction(bet.id, emoji).catch(() => {
+      updateBet(bet.id, (b) => {
+        const meta = b.post_meta!;
+        const existing = meta.reactions.find((r) => r.emoji === emoji);
+        const next: Reaction[] = existing
+          ? meta.reactions.map((r) =>
+              r.emoji === emoji
+                ? { ...r, count: r.reactedByMe ? r.count - 1 : r.count + 1, reactedByMe: !r.reactedByMe }
+                : r,
+            ).filter((r) => r.count > 0)
+          : [...meta.reactions, { emoji, count: 1, reactedByMe: !nextReactedByMe }];
+        return { ...b, post_meta: { ...meta, reactions: next } };
+      });
+      setToast("Couldn't save reaction");
     });
   }
 

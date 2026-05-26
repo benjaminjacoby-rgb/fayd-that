@@ -18,10 +18,6 @@ export const MEDIATOR_FEE_MIN_CENTS = 50;
 export const MIN_PROBABILITY = 5;
 export const MAX_PROBABILITY = 95;
 
-// Geo
-export const GEO_RADIUS_OPTIONS_M = [100, 200, 300, 500] as const;
-export const DEFAULT_GEO_RADIUS_M = 500;
-
 export const EXPIRY_PRESETS: Array<{ label: string; hours: number }> = [
   { label: "1h", hours: 1 },
   { label: "6h", hours: 6 },

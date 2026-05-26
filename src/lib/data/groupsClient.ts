@@ -74,6 +74,34 @@ export async function createGroup(input: CreateGroupInput): Promise<GroupView> {
   };
 }
 
+/**
+ * Add a user to a group as a regular member. The Postgres trigger from
+ * migration 008 automatically inserts the user into the group's
+ * `conversation_participants`, so the group chat stays in sync. RLS on
+ * `group_members` allows this only for the group's admin.
+ */
+export async function addGroupMember(groupId: string, userId: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("group_members")
+    .insert({ group_id: groupId, user_id: userId, role: "member" });
+  if (error) throw error;
+}
+
+/**
+ * Remove a user from a group. The trigger from migration 011 automatically
+ * removes them from `conversation_participants` for that group's
+ * conversation, so they lose access to the group chat as well.
+ */
+export async function removeGroupMember(groupId: string, userId: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("group_members")
+    .delete()
+    .match({ group_id: groupId, user_id: userId });
+  if (error) throw error;
+}
+
 function randomCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let out = "";

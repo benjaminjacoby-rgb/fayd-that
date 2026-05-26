@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/client";
 import { pickAvatarColor } from "@/lib/avatar";
+import { insertNotification } from "@/lib/data/notificationsClient";
 import type { CommentView, UserLite } from "@/types/db";
 
 interface DbCommentRow {
@@ -82,5 +83,23 @@ export async function postComment(input: {
     .select("id, bet_id, user_id, content, created_at")
     .single();
   if (error) throw error;
+
+  // Notify the bet poster (skipping when the commenter is the poster).
+  const { data: betRow } = await supabase
+    .from("bets")
+    .select("poster_id")
+    .eq("id", input.betId)
+    .maybeSingle();
+  const posterId = (betRow as { poster_id: string | null } | null)?.poster_id ?? null;
+  if (posterId) {
+    await insertNotification({
+      userId: posterId,
+      type: "bet_commented",
+      actorId: authUser.id,
+      referenceId: input.betId,
+      referenceType: "bet",
+    });
+  }
+
   return data as PostedComment;
 }

@@ -119,6 +119,7 @@ export function dbUserToUserRow(u: {
     first_name: first,
     last_name_initial: last,
     avatar_color: pickAvatarColor(u.id),
+    avatar_url: u.avatar_url,
     stripe_customer_id: null,
     wallet_balance_cents: Math.round(Number(u.wallet_balance ?? 0) * 100),
     created_at: u.created_at,

@@ -5,21 +5,18 @@ interface DbNotificationRow {
   id: string;
   user_id: string;
   type: string;
+  actor_id: string | null;
   reference_id: string | null;
   reference_type: string | null;
   is_read: boolean;
   created_at: string;
 }
 
-interface DbFriendshipWithRequester {
+interface DbUserMini {
   id: string;
-  requester_id: string;
-  requester: {
-    id: string;
-    username: string | null;
-    full_name: string | null;
-    avatar_url: string | null;
-  } | null;
+  username: string | null;
+  full_name: string | null;
+  avatar_url: string | null;
 }
 
 export async function getUnreadCount(userId: string): Promise<number> {
@@ -44,29 +41,45 @@ export async function getNotifications(userId: string): Promise<NotificationRow[
   if (error) throw error;
   const rows = (data ?? []) as DbNotificationRow[];
 
-  // For friend-request notifications, hydrate the actor (requester) so the
-  // UI can render their name + avatar without an extra round-trip.
-  const friendshipIds = rows
-    .filter((r) => r.type === "friend_request" && r.reference_type === "friendship" && r.reference_id)
-    .map((r) => r.reference_id as string);
+  // Hydrate actor profile + bet question in one round-trip each. Both pieces
+  // come from the new `actor_id` column (migration 010) and the bet reference,
+  // so we don't need per-type joins like the previous friendships-only path.
+  const actorIds = Array.from(
+    new Set(rows.map((r) => r.actor_id).filter((x): x is string => !!x)),
+  );
+  const usersById = new Map<string, DbUserMini>();
+  if (actorIds.length > 0) {
+    const { data: users } = await supabase
+      .from("users")
+      .select("id, username, full_name, avatar_url")
+      .in("id", actorIds);
+    for (const u of (users ?? []) as DbUserMini[]) usersById.set(u.id, u);
+  }
 
-  const actorByFriendshipId = new Map<string, { name: string | null; avatarUrl: string | null; userId: string }>();
-  if (friendshipIds.length > 0) {
-    const { data: friendships } = await supabase
-      .from("friendships")
-      .select("id, requester_id, requester:users!friendships_requester_id_fkey(id, username, full_name, avatar_url)")
-      .in("id", friendshipIds);
-    for (const f of (friendships ?? []) as unknown as DbFriendshipWithRequester[]) {
-      actorByFriendshipId.set(f.id, {
-        userId: f.requester?.id ?? f.requester_id,
-        name: f.requester?.full_name ?? f.requester?.username ?? null,
-        avatarUrl: f.requester?.avatar_url ?? null,
-      });
+  const betIds = Array.from(
+    new Set(
+      rows
+        .filter((r) => r.reference_type === "bet" && r.reference_id)
+        .map((r) => r.reference_id as string),
+    ),
+  );
+  const betQuestionById = new Map<string, string>();
+  if (betIds.length > 0) {
+    const { data: bets } = await supabase
+      .from("bets")
+      .select("id, question")
+      .in("id", betIds);
+    for (const b of (bets ?? []) as Array<{ id: string; question: string }>) {
+      betQuestionById.set(b.id, b.question);
     }
   }
 
   return rows.map((r) => {
-    const actor = r.reference_id ? actorByFriendshipId.get(r.reference_id) : undefined;
+    const actor = r.actor_id ? usersById.get(r.actor_id) : undefined;
+    const betQuestion =
+      r.reference_type === "bet" && r.reference_id
+        ? betQuestionById.get(r.reference_id) ?? null
+        : null;
     return {
       id: r.id,
       user_id: r.user_id,
@@ -74,9 +87,10 @@ export async function getNotifications(userId: string): Promise<NotificationRow[
       payload: {
         reference_id: r.reference_id,
         reference_type: r.reference_type,
-        actor_user_id: actor?.userId ?? null,
-        actor_name: actor?.name ?? null,
-        actor_avatar_url: actor?.avatarUrl ?? null,
+        actor_user_id: actor?.id ?? r.actor_id ?? null,
+        actor_name: actor?.full_name ?? actor?.username ?? null,
+        actor_avatar_url: actor?.avatar_url ?? null,
+        bet_question: betQuestion,
       },
       read: r.is_read,
       created_at: r.created_at,

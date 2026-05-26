@@ -4,7 +4,7 @@
 
 export type BetCategory = "fitness" | "academics" | "social" | "finance" | "other";
 export type BetStatus = "open" | "locked" | "resolved" | "disputed" | "cancelled";
-export type BetScope = "friends" | "group" | "geo";
+export type BetScope = "friends" | "group";
 export type BetSide = "yes" | "no";
 export type BetOutcome = "win" | "lose";
 export type MediationStatus = "pending" | "ruling_submitted" | "complete";
@@ -24,6 +24,11 @@ export interface UserRow {
   first_name: string | null;
   last_name_initial: string | null;
   avatar_color: string;
+  /** Public URL of the user's uploaded avatar (Supabase Storage). Null when
+   *  the user hasn't uploaded one; the UI falls back to initials + colour.
+   *  Optional so callsites that build a UserRow / UserLite without an image
+   *  (mock fixtures, ad-hoc construction) don't need to pass `null` everywhere. */
+  avatar_url?: string | null;
   stripe_customer_id: string | null;
   wallet_balance_cents: number;
   created_at: string;
@@ -31,7 +36,7 @@ export interface UserRow {
 
 export type UserLite = Pick<
   UserRow,
-  "id" | "first_name" | "last_name_initial" | "username" | "avatar_color"
+  "id" | "first_name" | "last_name_initial" | "username" | "avatar_color" | "avatar_url"
 >;
 
 export interface BetRow {
@@ -46,9 +51,6 @@ export interface BetRow {
   status: BetStatus;
   scope: BetScope;
   group_id: string | null;
-  geo_lat: number | null;
-  geo_lng: number | null;
-  geo_radius_meters: number | null;
   /** Optional poster-chosen expiration (separate from `expiry_at`). When set
    *  and in the past, the bet is treated as expired and cannot be filled. */
   expires_at?: string | null;

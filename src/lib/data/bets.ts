@@ -6,10 +6,12 @@ import type {
   BetView,
   ContractView,
   PostMeta,
+  Reaction,
   RelationshipLabel,
   SubContractView,
   UserLite,
 } from "@/types/db";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 // ────────────────────────────────────────────────
 // Row shapes from the schema in supabase/migrations/001_initial_schema.sql.
@@ -121,7 +123,51 @@ export async function getFeedBets(): Promise<BetView[]> {
   const fillsByContract = groupBy(fills, (f) => f.contract_id);
   const contractsByBet = groupBy(contracts, (c) => c.bet_id);
 
-  return bets.map((bet) => buildBetView(bet, contractsByBet.get(bet.id) ?? [], fillsByContract, usersById, groupsById));
+  // Reactions: pull all bet_reactions rows for the feed in one query, group by
+  // (bet_id, emoji), and tag the chips the current user contributed.
+  const { data: { user: authUser } } = await supabase.auth.getUser();
+  const reactionsByBet = await loadReactionsForBets(supabase, betIds, authUser?.id ?? null);
+
+  return bets.map((bet) =>
+    buildBetView(
+      bet,
+      contractsByBet.get(bet.id) ?? [],
+      fillsByContract,
+      usersById,
+      groupsById,
+      reactionsByBet.get(bet.id) ?? [],
+    ),
+  );
+}
+
+async function loadReactionsForBets(
+  supabase: SupabaseClient,
+  betIds: string[],
+  currentUserId: string | null,
+): Promise<Map<string, Reaction[]>> {
+  const out = new Map<string, Reaction[]>();
+  if (betIds.length === 0) return out;
+  const { data } = await supabase
+    .from("bet_reactions")
+    .select("bet_id, user_id, emoji")
+    .in("bet_id", betIds);
+  const rows = (data ?? []) as Array<{ bet_id: string; user_id: string; emoji: string }>;
+  const grouped = new Map<string, Map<string, { count: number; reactedByMe: boolean }>>();
+  for (const r of rows) {
+    const byEmoji = grouped.get(r.bet_id) ?? new Map();
+    const cell = byEmoji.get(r.emoji) ?? { count: 0, reactedByMe: false };
+    cell.count += 1;
+    if (currentUserId && r.user_id === currentUserId) cell.reactedByMe = true;
+    byEmoji.set(r.emoji, cell);
+    grouped.set(r.bet_id, byEmoji);
+  }
+  for (const [betId, byEmoji] of grouped) {
+    const arr: Reaction[] = [];
+    for (const [emoji, v] of byEmoji) arr.push({ emoji, count: v.count, reactedByMe: v.reactedByMe });
+    arr.sort((a, b) => b.count - a.count || a.emoji.localeCompare(b.emoji));
+    out.set(betId, arr);
+  }
+  return out;
 }
 
 // ────────────────────────────────────────────────
@@ -133,6 +179,7 @@ function buildBetView(
   fillsByContract: Map<string, DbFill[]>,
   usersById: Map<string, DbUser>,
   groupsById: Map<string, DbGroup>,
+  reactions: BetView["post_meta"] extends infer T ? (T extends { reactions: infer R } ? R : never) : never,
 ): BetView {
   const posterUser = usersById.get(bet.poster_id ?? "");
   const creator = toUserLite(bet.poster_id, posterUser);
@@ -209,7 +256,7 @@ function buildBetView(
     relationship,
     poster_side: posterSide,
     original_filled_cents: originalFilledCents,
-    reactions: [],
+    reactions: reactions ?? [],
     comments: [],
     poll: { yes_votes: 0, no_votes: 0, my_vote: null },
     sub_contracts: subContracts,
@@ -230,9 +277,6 @@ function buildBetView(
     status: mapBetStatus(bet.status),
     scope: mapScope(bet.audience_type),
     group_id: bet.group_id,
-    geo_lat: null,
-    geo_lng: null,
-    geo_radius_meters: null,
     expires_at: bet.expires_at,
     created_at: bet.created_at,
     resolved_at: null,

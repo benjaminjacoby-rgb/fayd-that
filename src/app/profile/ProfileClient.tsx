@@ -1,35 +1,61 @@
 "use client";
 
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Avatar } from "@/components/Avatar";
 import { Button } from "@/components/ui/Button";
+import { EditProfileSheet } from "@/components/EditProfileSheet";
 import { formatCents, fullName } from "@/lib/format";
-import { IS_PAYMENTS_LIVE } from "@/lib/config";
+import { IS_PAYMENTS_LIVE, USE_MOCK_DATA } from "@/lib/config";
 import type { GroupView, UserRow } from "@/types/db";
 
 export function ProfileClient({
-  me,
+  me: meProp,
   friends,
   pendingRequestsCount,
   groups,
+  /** When true (the default), this is the signed-in user's own profile and
+   *  edit controls are rendered. When viewing someone else's profile in the
+   *  future, the caller can pass `isCurrentUser={false}` to hide editing UI. */
+  isCurrentUser = true,
 }: {
   me: UserRow;
   stats?: { totalBets: number; winRate: number; totalWonCents: number; currentStreak: number };
   friends: UserRow[];
   pendingRequestsCount: number;
   groups: GroupView[];
+  isCurrentUser?: boolean;
 }) {
+  const router = useRouter();
+  const [me, setMe] = useState<UserRow>(meProp);
+  const [editing, setEditing] = useState(false);
   const totalPendingApprovals = groups.reduce((s, g) => s + (g.is_admin ? g.pending_join_count : 0), 0);
 
   return (
     <div className="px-4 pt-4 flex flex-col gap-5">
       {/* Identity */}
       <div className="flex items-center gap-4">
-        <Avatar first={me.first_name} lastInitial={me.last_name_initial} color={me.avatar_color} size={64} />
-        <div>
-          <div className="text-lg font-semibold">{fullName(me)}</div>
-          <div className="text-text2 text-sm">@{me.username ?? "—"}</div>
+        <Avatar
+          first={me.first_name}
+          lastInitial={me.last_name_initial}
+          color={me.avatar_color}
+          imageUrl={me.avatar_url}
+          size={64}
+        />
+        <div className="flex-1 min-w-0">
+          <div className="text-lg font-semibold truncate">{fullName(me)}</div>
+          <div className="text-text2 text-sm truncate">@{me.username ?? "—"}</div>
         </div>
+        {isCurrentUser && !USE_MOCK_DATA ? (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="rounded-input bg-bg3 hover:bg-bg4 text-text text-xs font-medium px-3 py-1.5"
+          >
+            Edit
+          </button>
+        ) : null}
       </div>
 
       {/* Wallet */}
@@ -136,6 +162,33 @@ export function ProfileClient({
         </Link>
       </section>
 
+      {editing ? (
+        <EditProfileSheet
+          me={me}
+          onClose={() => setEditing(false)}
+          onSaved={({ fullName: newName, username, avatarUrl }) => {
+            const { first, last } = splitFullName(newName);
+            setMe({
+              ...me,
+              first_name: first,
+              last_name_initial: last,
+              username,
+              avatar_url: avatarUrl,
+            });
+            setEditing(false);
+            // Refresh server data so other pages reading the user row pick up
+            // the new name/avatar on next navigation.
+            router.refresh();
+          }}
+        />
+      ) : null}
     </div>
   );
+}
+
+function splitFullName(full: string): { first: string | null; last: string | null } {
+  const parts = full.trim().split(/\s+/).filter(Boolean);
+  const first = parts[0] ?? null;
+  const last = parts.length > 1 ? (parts[parts.length - 1][0] ?? "").toUpperCase() : null;
+  return { first, last: last && last.length ? last : null };
 }

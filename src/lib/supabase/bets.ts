@@ -52,9 +52,6 @@ export interface CreateBetInput {
   expiry_at: string;
   scope: BetRow["scope"];
   group_id?: string | null;
-  geo_lat?: number | null;
-  geo_lng?: number | null;
-  geo_radius_meters?: number | null;
   mediator_id?: string | null;
 }
 
@@ -76,9 +73,6 @@ export async function createBet(input: CreateBetInput): Promise<BetRow> {
       expiry_at: input.expiry_at,
       scope: input.scope,
       group_id: input.group_id ?? null,
-      geo_lat: input.geo_lat ?? null,
-      geo_lng: input.geo_lng ?? null,
-      geo_radius_meters: input.geo_radius_meters ?? null,
     })
     .select("*")
     .single();

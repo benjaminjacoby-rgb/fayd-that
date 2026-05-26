@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Avatar } from "@/components/Avatar";
 import { PostCard } from "@/components/PostCard";
 import { FaydThatSheet } from "@/components/FaydThatSheet";
@@ -9,6 +10,8 @@ import { Button } from "@/components/ui/Button";
 import { Toast } from "@/components/Toast";
 import { fullName } from "@/lib/format";
 import { makeHandlers } from "@/app/HomeClient";
+import { USE_MOCK_DATA } from "@/lib/config";
+import { addGroupMember, removeGroupMember } from "@/lib/data/groupsClient";
 import type { MockPendingJoin } from "@/lib/mock";
 import type { BetView, GroupView, UserLite } from "@/types/db";
 
@@ -21,22 +24,30 @@ export function GroupClient({
   initialMembers,
   initialPending,
   bets: initialBets,
+  addableFriends,
   currentUser,
 }: {
   group: GroupView;
   initialMembers: UserLite[];
   initialPending: MockPendingJoin[];
   bets: BetView[];
+  /** Friends of the signed-in admin who aren't already in this group.
+   *  Used to populate the "Add member" picker. Empty in mock mode. */
+  addableFriends: UserLite[];
   currentUser: UserLite;
 }) {
+  const router = useRouter();
   const [tab, setTab] = useState<Tab>("feed");
   const [members, setMembers] = useState<UserLite[]>(initialMembers);
+  const [available, setAvailable] = useState<UserLite[]>(addableFriends);
   const [pending, setPending] = useState<MockPendingJoin[]>(initialPending);
   const [bets, setBets] = useState<BetView[]>(initialBets);
   const [adminId, setAdminId] = useState<string>(group.admin_id);
   const [faydSheet, setFaydSheet] = useState<FaydSheetState>(null);
   const [startSheet, setStartSheet] = useState<StartSheetState>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [addPickerOpen, setAddPickerOpen] = useState(false);
+  const [busyMemberId, setBusyMemberId] = useState<string | null>(null);
 
   const isAdmin = adminId === currentUser.id;
 
@@ -65,10 +76,53 @@ export function GroupClient({
     setPending((xs) => xs.filter((x) => x.id !== pj.id));
     setToast(`Request from ${pj.user.first_name} declined`);
   }
-  function removeMember(user: UserLite) {
+  async function removeMember(user: UserLite) {
     if (user.id === adminId) return;
+    if (busyMemberId) return;
+    setBusyMemberId(user.id);
+    // Optimistic — drop from member list, add back to addable pool.
     setMembers((xs) => xs.filter((m) => m.id !== user.id));
-    setToast(`${user.first_name} removed`);
+    setAvailable((xs) => (xs.some((x) => x.id === user.id) ? xs : [...xs, user]));
+    if (USE_MOCK_DATA) {
+      setToast(`${user.first_name} removed`);
+      setBusyMemberId(null);
+      return;
+    }
+    try {
+      await removeGroupMember(group.id, user.id);
+      setToast(`${user.first_name ?? "Member"} removed`);
+      router.refresh();
+    } catch (e) {
+      // Rollback
+      setMembers((xs) => (xs.some((m) => m.id === user.id) ? xs : [...xs, user]));
+      setAvailable((xs) => xs.filter((x) => x.id !== user.id));
+      setToast(e instanceof Error ? `Couldn't remove · ${e.message}` : "Couldn't remove member");
+    } finally {
+      setBusyMemberId(null);
+    }
+  }
+  async function addMember(user: UserLite) {
+    if (busyMemberId) return;
+    setBusyMemberId(user.id);
+    setMembers((xs) => (xs.some((m) => m.id === user.id) ? xs : [...xs, user]));
+    setAvailable((xs) => xs.filter((x) => x.id !== user.id));
+    if (USE_MOCK_DATA) {
+      setToast(`${user.first_name ?? "Member"} added`);
+      setBusyMemberId(null);
+      return;
+    }
+    try {
+      await addGroupMember(group.id, user.id);
+      setToast(`${user.first_name ?? "Member"} added`);
+      router.refresh();
+    } catch (e) {
+      // Rollback
+      setMembers((xs) => xs.filter((m) => m.id !== user.id));
+      setAvailable((xs) => (xs.some((x) => x.id === user.id) ? xs : [...xs, user]));
+      setToast(e instanceof Error ? `Couldn't add · ${e.message}` : "Couldn't add member");
+    } finally {
+      setBusyMemberId(null);
+    }
   }
   function transferAdmin(user: UserLite) {
     setAdminId(user.id);
@@ -150,7 +204,22 @@ export function GroupClient({
       ) : null}
 
       {tab === "members" ? (
-        <ul className="flex flex-col divide-y divide-bg3 mt-2">
+        <>
+          {isAdmin ? (
+            <div className="mb-2 mt-2">
+              <button
+                type="button"
+                onClick={() => setAddPickerOpen(true)}
+                disabled={available.length === 0}
+                className="w-full rounded-input bg-bg3 hover:bg-bg4 disabled:opacity-50 text-text text-sm font-medium py-2.5"
+              >
+                {available.length === 0
+                  ? "All your friends are already in this group"
+                  : "+ Add member"}
+              </button>
+            </div>
+          ) : null}
+          <ul className="flex flex-col divide-y divide-bg3">
           {members.map((m) => {
             const isMemberAdmin = m.id === adminId;
             const isMe = m.id === currentUser.id;
@@ -183,6 +252,18 @@ export function GroupClient({
             );
           })}
         </ul>
+        </>
+      ) : null}
+
+      {addPickerOpen ? (
+        <AddMemberPicker
+          friends={available}
+          onClose={() => setAddPickerOpen(false)}
+          onPick={(user) => {
+            setAddPickerOpen(false);
+            addMember(user);
+          }}
+        />
       ) : null}
 
       {tab === "pending" && isAdmin ? (
@@ -345,5 +426,69 @@ function MemberMenu({ onTransfer, onRemove }: { onTransfer: () => void; onRemove
 function Empty({ body }: { body: string }) {
   return (
     <div className="text-text3 text-sm italic text-center mt-10">{body}</div>
+  );
+}
+
+function AddMemberPicker({
+  friends,
+  onClose,
+  onPick,
+}: {
+  friends: UserLite[];
+  onClose: () => void;
+  onPick: (user: UserLite) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return friends;
+    return friends.filter((f) => {
+      const name = `${f.first_name ?? ""} ${f.last_name_initial ?? ""} ${f.username ?? ""}`.toLowerCase();
+      return name.includes(q);
+    });
+  }, [friends, query]);
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-app bg-bg2 rounded-t-2xl shadow-2xl px-5 pt-2 pb-6 max-h-[80vh] flex flex-col">
+        <div className="flex justify-center mb-2">
+          <div className="h-1 w-10 rounded-pill bg-bg4" />
+        </div>
+        <h2 className="text-lg font-bold mb-3">Add a member</h2>
+        <input
+          autoFocus
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search friends…"
+          className="w-full bg-bg3 rounded-input px-3 py-2.5 mb-3 outline-none focus:ring-2 focus:ring-yes/40"
+        />
+        {filtered.length === 0 ? (
+          <p className="text-text3 text-sm py-6 text-center">No friends match.</p>
+        ) : (
+          <ul className="flex-1 overflow-y-auto -mx-5 px-5 divide-y divide-bg3">
+            {filtered.map((f) => (
+              <li key={f.id}>
+                <button
+                  onClick={() => onPick(f)}
+                  className="w-full flex items-center gap-3 py-3 text-left hover:bg-bg3/50 rounded transition"
+                >
+                  <Avatar
+                    first={f.first_name}
+                    lastInitial={f.last_name_initial}
+                    color={f.avatar_color}
+                    imageUrl={f.avatar_url}
+                    size={36}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium truncate">{fullName(f)}</div>
+                    <div className="text-text3 text-xs truncate">@{f.username ?? "—"}</div>
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
   );
 }
