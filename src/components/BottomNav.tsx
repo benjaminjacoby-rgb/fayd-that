@@ -17,7 +17,7 @@ const TABS: Tab[] = [
   { href: "/",         label: "Home",       icon: <HomeIcon /> },
   { href: "/groups",   label: "Groups",     icon: <PeopleIcon />, prefixMatch: true },
   { href: "/create",   label: "Post a Bet", icon: <PlusIcon />, center: true },
-  { href: "/pending",  label: "Pending",    icon: <ClockIcon />, prefixMatch: true },
+  { href: "/pending",  label: "My Bets",    icon: <ClockIcon />, prefixMatch: true },
   { href: "/profile",  label: "Profile",    icon: <PersonIcon /> },
 ];
 

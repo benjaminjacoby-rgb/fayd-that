@@ -13,7 +13,7 @@ export default async function PendingPage() {
   if (USE_MOCK_DATA) {
     const me = MOCK_CURRENT_USER;
     return (
-      <AppShell title="Pending">
+      <AppShell title="My Bets">
         <PendingClient
           currentUser={{
             id: me.id,
@@ -24,18 +24,15 @@ export default async function PendingPage() {
           }}
           initialPosts={[]}
           initialContracts={[]}
+          initialResolvedPosts={[]}
+          initialResolvedContracts={[]}
         />
       </AppShell>
     );
   }
 
-  // Real Supabase path — resolve current auth user so the resolution UI can
-  // correctly identify the mediator / participant vs. the viewer. Loading the
-  // mock user instead (which was the prior behaviour) made every voting and
-  // mediator check fall through, so the "Settle this bet" / "How did this end?"
-  // sections never rendered for the real signed-in user.
   const userRow = await getCurrentUserRow();
-  const { posts, contracts } = await getPendingActivity();
+  const { posts, contracts, resolvedPosts, resolvedContracts } = await getPendingActivity();
 
   const currentUser: UserLite = userRow
     ? {
@@ -54,11 +51,13 @@ export default async function PendingPage() {
       };
 
   return (
-    <AppShell title="Pending">
+    <AppShell title="My Bets">
       <PendingClient
         currentUser={currentUser}
         initialPosts={posts}
         initialContracts={contracts}
+        initialResolvedPosts={resolvedPosts}
+        initialResolvedContracts={resolvedContracts}
       />
     </AppShell>
   );

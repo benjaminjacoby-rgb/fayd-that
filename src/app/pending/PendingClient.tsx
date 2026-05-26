@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Avatar } from "@/components/Avatar";
 import { CategoryPill } from "@/components/CategoryPill";
 import { ResolutionSection } from "@/components/ResolutionSection";
-import { formatCents, formatTimeRemaining, fullName } from "@/lib/format";
+import { formatCents, fullName } from "@/lib/format";
 import {
   getMyActiveContracts,
   getMyPosts,
@@ -14,6 +14,7 @@ import {
   type MyPostView,
   type PendingContractView,
 } from "@/lib/sessionState";
+import { closeBet } from "@/lib/data/betsClient";
 import type { BetView, UserLite } from "@/types/db";
 
 export interface PendingPostSeed {
@@ -29,31 +30,31 @@ export interface PendingContractSeed {
   createdAt: string;
 }
 
+type Tab = "active" | "history";
+
 export function PendingClient({
   currentUser,
   initialPosts,
   initialContracts,
+  initialResolvedPosts,
+  initialResolvedContracts,
 }: {
   currentUser: UserLite;
   initialPosts: PendingPostSeed[];
   initialContracts: PendingContractSeed[];
+  initialResolvedPosts: PendingPostSeed[];
+  initialResolvedContracts: PendingContractSeed[];
 }) {
   useSessionStore(); // re-render on session-store changes
   const router = useRouter();
-  // Defer reading store state until after mount so SSR + hydration match.
   const [mounted, setMounted] = useState(false);
+  const [tab, setTab] = useState<Tab>("active");
   useEffect(() => setMounted(true), []);
   const onSettled = () => router.refresh();
 
-  // Server-loaded pending activity. Anything created/filled this session
-  // takes precedence so optimistic UI from createBet/fillBet wins over a
-  // stale server snapshot.
-  const sessionPosts = mounted
-    ? getMyPosts().filter((p) => p.source === "session")
-    : [];
-  const sessionActives = mounted
-    ? getMyActiveContracts().filter((a) => a.source === "session")
-    : [];
+  // Active (unresolved) bets — session store wins over stale server snapshot.
+  const sessionPosts = mounted ? getMyPosts().filter((p) => p.source === "session") : [];
+  const sessionActives = mounted ? getMyActiveContracts().filter((a) => a.source === "session") : [];
 
   const sessionPostBetIds = new Set(sessionPosts.map((p) => p.bet.id));
   const serverPosts: MyPostView[] = initialPosts
@@ -79,46 +80,154 @@ export function PendingClient({
     ...serverActives,
   ];
 
-  if (mounted && actives.length === 0 && posts.length === 0) {
+  // History (resolved) bets — server only, no session-store equivalent.
+  const resolvedPosts: MyPostView[] = initialResolvedPosts.map((p) => ({
+    bet: p.bet,
+    source: "seed" as const,
+  }));
+  const resolvedActives: PendingContractView[] = initialResolvedContracts.map((c) => ({
+    id: c.id,
+    bet: c.bet,
+    side: c.side,
+    yesPercent: c.yesPercent,
+    stakeCents: c.stakeCents,
+    createdAt: c.createdAt,
+    source: "seed" as const,
+  }));
+
+  const hasActive = actives.length > 0 || posts.length > 0;
+  const hasHistory = resolvedActives.length > 0 || resolvedPosts.length > 0;
+
+  if (mounted && !hasActive && !hasHistory) {
     return <EmptyState />;
   }
 
   return (
-    <div className="px-4 pt-4 pb-6 flex flex-col gap-6">
-      <section>
-        <SectionHeader title="Active" count={actives.length} />
-        {actives.length === 0 ? (
-          <p className="text-text3 text-sm italic mt-2">
-            Bets you've locked in this session will show up here.
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-3 mt-3">
-            {actives.map((a) => (
-              <li key={a.id}>
-                <ActiveRow row={a} currentUserId={currentUser.id} onSettled={onSettled} />
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+    <div className="flex flex-col">
+      {/* Tab bar */}
+      <div className="flex border-b border-bg3 px-4 pt-4 gap-4">
+        <TabButton active={tab === "active"} onClick={() => setTab("active")}>
+          Active
+        </TabButton>
+        <TabButton active={tab === "history"} onClick={() => setTab("history")}>
+          History
+        </TabButton>
+      </div>
 
-      <section>
-        <SectionHeader title="My Posts" count={posts.length} />
-        {posts.length === 0 ? (
-          <p className="text-text3 text-sm italic mt-2">
-            Bets you create will show up here.
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-3 mt-3">
-            {posts.map((p) => (
-              <li key={p.bet.id}>
-                <PostRow row={p} currentUserId={currentUser.id} onSettled={onSettled} />
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      {tab === "active" ? (
+        <div className="px-4 pt-4 pb-6 flex flex-col gap-6">
+          <section>
+            <SectionHeader title="My Posts" count={posts.length} />
+            {posts.length === 0 ? (
+              <p className="text-text3 text-sm italic mt-2">
+                Bets you create will show up here.
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-3 mt-3">
+                {posts.map((p) => (
+                  <li key={p.bet.id}>
+                    <PostRow
+                      row={p}
+                      currentUserId={currentUser.id}
+                      onSettled={onSettled}
+                      onClose={async () => {
+                        await closeBet(p.bet.id);
+                        router.refresh();
+                      }}
+                    />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section>
+            <SectionHeader title="Active" count={actives.length} />
+            {actives.length === 0 ? (
+              <p className="text-text3 text-sm italic mt-2">
+                Bets you've locked in this session will show up here.
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-3 mt-3">
+                {actives.map((a) => (
+                  <li key={a.id}>
+                    <ActiveRow row={a} currentUserId={currentUser.id} onSettled={onSettled} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+      ) : (
+        <div className="px-4 pt-4 pb-6 flex flex-col gap-6">
+          {!hasHistory ? (
+            <p className="text-text3 text-sm italic mt-4">
+              Resolved bets will show up here.
+            </p>
+          ) : (
+            <>
+              {resolvedPosts.length > 0 ? (
+                <section>
+                  <SectionHeader title="My Posts" count={resolvedPosts.length} />
+                  <ul className="flex flex-col gap-3 mt-3">
+                    {resolvedPosts.map((p) => (
+                      <li key={p.bet.id}>
+                        <PostRow
+                          row={p}
+                          currentUserId={currentUser.id}
+                          onSettled={onSettled}
+                          resolved
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+              {resolvedActives.length > 0 ? (
+                <section>
+                  <SectionHeader title="Filled" count={resolvedActives.length} />
+                  <ul className="flex flex-col gap-3 mt-3">
+                    {resolvedActives.map((a) => (
+                      <li key={a.id}>
+                        <ActiveRow
+                          row={a}
+                          currentUserId={currentUser.id}
+                          onSettled={onSettled}
+                          resolved
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+            </>
+          )}
+        </div>
+      )}
     </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`pb-2.5 text-sm font-semibold border-b-2 transition ${
+        active
+          ? "border-yes text-yes"
+          : "border-transparent text-text3 hover:text-text2"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -137,20 +246,18 @@ function ActiveRow({
   row,
   currentUserId,
   onSettled,
+  resolved = false,
 }: {
   row: PendingContractView;
   currentUserId: string;
   onSettled: () => void;
+  resolved?: boolean;
 }) {
   const { bet, side, yesPercent, stakeCents } = row;
-  // Display the taker's odds — flip if user is on NO.
   const userOdds = side === "yes" ? yesPercent : 100 - yesPercent;
   const sideTextClass = side === "yes" ? "text-yes" : "text-no";
   const sideBgClass = side === "yes" ? "bg-yes/15 border-yes/30" : "bg-no/15 border-no/30";
-  // If the bet was originally posted by someone other than the current user,
-  // surface the poster up top so the taker knows who they're going against.
   const showPoster = bet.creator?.id && bet.creator.id !== currentUserId;
-  // Win = stake / (odds / 100). Guard against zero odds.
   const winCents = userOdds > 0 ? Math.round(stakeCents / (userOdds / 100)) : 0;
 
   return (
@@ -172,7 +279,6 @@ function ActiveRow({
         </div>
       ) : null}
 
-      {/* YOUR SIDE — prominent at top */}
       <div className={`rounded-input border ${sideBgClass} px-3 py-3 flex items-center justify-between`}>
         <span className="text-[10px] uppercase tracking-wide text-text3 font-semibold">
           Your side
@@ -189,9 +295,11 @@ function ActiveRow({
             new
           </span>
         ) : null}
-        <span className="ml-auto text-xs text-text3 font-mono">
-          {formatTimeRemaining(bet.expiry_at)}
-        </span>
+        {resolved ? (
+          <span className="text-[10px] uppercase tracking-wide bg-bg3 text-text3 rounded-pill px-1.5 py-px font-semibold">
+            resolved
+          </span>
+        ) : null}
       </div>
       <p className="font-medium leading-snug mt-2">{bet.question}</p>
 
@@ -207,7 +315,9 @@ function ActiveRow({
         </Stat>
       </div>
 
-      <ResolutionSection bet={bet} currentUserId={currentUserId} onSettled={onSettled} />
+      {!resolved ? (
+        <ResolutionSection bet={bet} currentUserId={currentUserId} onSettled={onSettled} />
+      ) : null}
     </article>
   );
 }
@@ -216,17 +326,47 @@ function PostRow({
   row,
   currentUserId,
   onSettled,
+  onClose,
+  resolved = false,
 }: {
   row: MyPostView;
   currentUserId: string;
   onSettled: () => void;
+  onClose?: () => Promise<void>;
+  resolved?: boolean;
 }) {
   const { bet } = row;
   const filled = bet.post_meta?.original_filled_cents ?? 0;
   const remaining = Math.max(0, bet.stake_cents - filled);
   const filledPct = bet.stake_cents > 0 ? Math.round((filled / bet.stake_cents) * 100) : 0;
-  // Each contract with negotiation_id null is a fill on the original line.
   const fillCount = (bet.contracts ?? []).filter((c) => c.negotiation_id === null).length;
+  const isClosed = bet.status === "closed";
+
+  const mediatorId =
+    bet.post_meta?.mediator?.mode === "accepted"
+      ? bet.post_meta.mediator.mediator?.id ?? null
+      : null;
+  const canClose =
+    !resolved &&
+    !isClosed &&
+    (bet.creator_id === currentUserId || mediatorId === currentUserId);
+
+  const [closing, setClosing] = useState(false);
+  const [closeError, setCloseError] = useState<string | null>(null);
+
+  async function handleClose() {
+    if (!onClose) return;
+    setClosing(true);
+    setCloseError(null);
+    try {
+      await onClose();
+    } catch (e) {
+      setCloseError(e instanceof Error ? e.message : "Couldn't close bet");
+    } finally {
+      setClosing(false);
+    }
+  }
+
   return (
     <article className="bg-bg2 rounded-card p-4">
       <div className="flex items-center gap-2 mb-2">
@@ -236,30 +376,56 @@ function PostRow({
             new
           </span>
         ) : null}
-        <span className="ml-auto text-xs text-text3 font-mono">
-          {formatTimeRemaining(bet.expiry_at)}
-        </span>
+        {isClosed ? (
+          <span className="text-[10px] uppercase tracking-wide bg-gold/20 text-gold rounded-pill px-1.5 py-px font-semibold">
+            closed
+          </span>
+        ) : null}
+        {resolved ? (
+          <span className="text-[10px] uppercase tracking-wide bg-bg3 text-text3 rounded-pill px-1.5 py-px font-semibold">
+            resolved
+          </span>
+        ) : null}
       </div>
       <p className="font-medium leading-snug">{bet.question}</p>
 
-      <div className="mt-3 flex items-center justify-between text-xs">
-        {remaining > 0 ? (
-          <span className="text-yes font-bold font-mono text-base">
-            {formatCents(remaining)} still open
-          </span>
-        ) : (
-          <span className="text-text3 font-bold text-base">fully filled</span>
-        )}
-        <span className="text-text3">
-          {fillCount} {fillCount === 1 ? "person" : "people"} fayded
-        </span>
-      </div>
+      {!resolved ? (
+        <>
+          <div className="mt-3 flex items-center justify-between text-xs">
+            {remaining > 0 ? (
+              <span className="text-yes font-bold font-mono text-base">
+                {formatCents(remaining)} still open
+              </span>
+            ) : (
+              <span className="text-text3 font-bold text-base">fully filled</span>
+            )}
+            <span className="text-text3">
+              {fillCount} {fillCount === 1 ? "person" : "people"} fayded
+            </span>
+          </div>
 
-      <div className="mt-2 h-1 w-full rounded-pill bg-bg3 overflow-hidden">
-        <div className="h-full bg-yes/60" style={{ width: `${filledPct}%` }} />
-      </div>
+          <div className="mt-2 h-1 w-full rounded-pill bg-bg3 overflow-hidden">
+            <div className="h-full bg-yes/60" style={{ width: `${filledPct}%` }} />
+          </div>
 
-      <ResolutionSection bet={bet} currentUserId={currentUserId} onSettled={onSettled} />
+          {canClose ? (
+            <div className="mt-3">
+              <button
+                disabled={closing}
+                onClick={handleClose}
+                className="w-full rounded-input border border-gold/50 text-gold font-semibold text-sm py-2.5 hover:bg-gold/10 active:scale-[0.97] transition disabled:opacity-40"
+              >
+                {closing ? "Closing…" : "Close Bet"}
+              </button>
+              {closeError ? (
+                <p className="text-no text-xs mt-1">{closeError}</p>
+              ) : null}
+            </div>
+          ) : null}
+
+          <ResolutionSection bet={bet} currentUserId={currentUserId} onSettled={onSettled} />
+        </>
+      ) : null}
     </article>
   );
 }
@@ -276,8 +442,8 @@ function Stat({ label, children }: { label: string; children: React.ReactNode })
 function EmptyState() {
   return (
     <div className="px-6 pt-16 text-center">
-      <div className="text-5xl mb-3">⏳</div>
-      <h2 className="text-lg font-semibold mb-1">No pending bets</h2>
+      <div className="text-5xl mb-3">🎲</div>
+      <h2 className="text-lg font-semibold mb-1">No bets yet</h2>
       <p className="text-text2 text-sm mb-6">
         Bets you join or post will show up here.
       </p>

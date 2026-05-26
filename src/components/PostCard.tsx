@@ -4,8 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Avatar } from "./Avatar";
 import { CommentsSection } from "./CommentsSection";
-import { RelativeTime } from "./RelativeTime";
-import { formatCents, formatTimeRemaining, fullName } from "@/lib/format";
+import { formatCents, fullName } from "@/lib/format";
 import type { BetSide, BetView, MediatorState, Reaction, UserLite } from "@/types/db";
 
 interface Props {
@@ -193,8 +192,6 @@ export function PostCard({
           <div className="text-text3 text-[11px] mt-1 truncate">
             {isMyBet ? "You" : fullName(bet.creator)}
             {usernameLabel ? <> · {usernameLabel}</> : null}
-            {" · "}
-            <RelativeTime iso={bet.expiry_at} formatter={formatTimeRemaining} />
           </div>
         </div>
         <div className="text-right shrink-0">
@@ -609,18 +606,19 @@ function MediatorChip({
         ? "Mediator needed"
         : "Mediator requested"
       : `Med: ${state.mediator?.first_name ?? "—"}`;
-  const baseClass =
-    "inline-flex items-center gap-1 rounded-pill bg-gold/15 text-gold text-[10px] font-semibold px-2 py-0.5";
   if (canAccept) {
     return (
-      <button onClick={onAccept} className={`${baseClass} hover:bg-gold/25 transition`}>
-        <ScalesIcon />
+      <button
+        onClick={onAccept}
+        className="inline-flex items-center gap-1 rounded-pill border-2 border-gold text-gold text-[10px] font-bold px-2.5 py-1 hover:bg-gold/15 active:scale-95 transition"
+      >
+        <ScalesIcon className="w-3.5 h-3.5 text-gold shrink-0" />
         <span>{label}</span>
       </button>
     );
   }
   return (
-    <span className={baseClass}>
+    <span className="inline-flex items-center gap-1 rounded-pill bg-gold/15 text-gold text-[10px] font-semibold px-2 py-0.5">
       <ScalesIcon />
       <span>{label}</span>
     </span>

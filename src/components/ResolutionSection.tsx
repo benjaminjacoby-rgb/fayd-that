@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { castVote, getVotes, settleBet, type VoteRow } from "@/lib/data/resolutionClient";
+import {
+  castVote,
+  getVotes,
+  getRevoteRequests,
+  requestRevote,
+  settleBet,
+  type VoteRow,
+  type RevoteRequestRow,
+} from "@/lib/data/resolutionClient";
 import type { BetSide, BetView } from "@/types/db";
 
 interface Props {
@@ -52,7 +60,46 @@ export function ResolutionSection({ bet, currentUserId, onSettled }: Props) {
 
   const concluded = !!bet.post_meta?.concluded || bet.status === "resolved";
 
+  // Only show resolution UI once the bet is closed.
+  if (bet.status !== "closed") return null;
+  if (concluded) return null;
+
+  return (
+    <ResolutionContent
+      bet={bet}
+      currentUserId={currentUserId}
+      participants={participants}
+      participantCount={participantCount}
+      hasMediator={hasMediator}
+      isMediator={isMediator}
+      isParticipant={isParticipant}
+      onSettled={onSettled}
+    />
+  );
+}
+
+/** Inner component — only rendered when bet.status === "closed" and not concluded. */
+function ResolutionContent({
+  bet,
+  currentUserId,
+  participants,
+  participantCount,
+  hasMediator,
+  isMediator,
+  isParticipant,
+  onSettled,
+}: {
+  bet: BetView;
+  currentUserId: string;
+  participants: string[];
+  participantCount: number;
+  hasMediator: boolean;
+  isMediator: boolean;
+  isParticipant: boolean;
+  onSettled?: () => void;
+}) {
   const [votes, setVotes] = useState<VoteRow[]>([]);
+  const [revoteRequests, setRevoteRequests] = useState<RevoteRequestRow[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,16 +107,20 @@ export function ResolutionSection({ bet, currentUserId, onSettled }: Props) {
   // Mediator-flow UI state.
   const [mediatorChoice, setMediatorChoice] = useState<BetSide | null>(null);
 
+  // Voting-flow confirmation state.
+  const [voteChoice, setVoteChoice] = useState<BetSide | null>(null);
+
   useEffect(() => {
-    if (concluded || hasMediator) {
+    if (hasMediator) {
       setLoaded(true);
       return;
     }
     let cancelled = false;
-    getVotes(bet.id)
-      .then((rows) => {
+    Promise.all([getVotes(bet.id), getRevoteRequests(bet.id)])
+      .then(([voteRows, revoteRows]) => {
         if (!cancelled) {
-          setVotes(rows);
+          setVotes(voteRows);
+          setRevoteRequests(revoteRows);
           setLoaded(true);
         }
       })
@@ -79,9 +130,7 @@ export function ResolutionSection({ bet, currentUserId, onSettled }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [bet.id, concluded, hasMediator]);
-
-  if (concluded) return null;
+  }, [bet.id, hasMediator]);
 
   // ────────────────────────────────────────────────
   // MEDIATOR FLOW
@@ -150,9 +199,7 @@ export function ResolutionSection({ bet, currentUserId, onSettled }: Props) {
                 {busy ? "Settling…" : "Confirm settle"}
               </button>
             </div>
-            {error ? (
-              <div className="text-xs text-no">{error}</div>
-            ) : null}
+            {error ? <div className="text-xs text-no">{error}</div> : null}
           </div>
         )}
       </div>
@@ -178,12 +225,13 @@ export function ResolutionSection({ bet, currentUserId, onSettled }: Props) {
     if (busy || myVote) return;
     setBusy(true);
     setError(null);
+    setVoteChoice(null);
     try {
       const inserted = await castVote({ betId: bet.id, side });
       const nextVotes = [...votes.filter((v) => v.voter_id !== inserted.voter_id), inserted];
       setVotes(nextVotes);
       const nextTally = tallyFor(nextVotes, participants);
-      // Auto-settle if majority reached on this side.
+      // Auto-settle if majority reached.
       const winnerSide = nextTally.yes >= needed ? "yes" : nextTally.no >= needed ? "no" : null;
       if (winnerSide) {
         try {
@@ -200,15 +248,60 @@ export function ResolutionSection({ bet, currentUserId, onSettled }: Props) {
     }
   }
 
+  async function handleRequestRevote() {
+    setBusy(true);
+    setError(null);
+    try {
+      const didReset = await requestRevote(bet.id);
+      if (didReset) {
+        // All participants agreed — votes cleared, start fresh.
+        setVotes([]);
+        setRevoteRequests([]);
+      } else {
+        // Optimistically add this user's request to local state.
+        setRevoteRequests((prev) => [
+          ...prev,
+          {
+            id: "optimistic",
+            bet_id: bet.id,
+            user_id: currentUserId,
+            created_at: new Date().toISOString(),
+          },
+        ]);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't request revote");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (disputed) {
+    const hasMyRevoteRequest = revoteRequests.some((r) => r.user_id === currentUserId);
     return (
-      <div className="mt-3 rounded-input border border-no/40 bg-no/10 px-3 py-2.5 flex flex-col gap-1">
-        <span className="inline-block self-start text-[10px] font-bold uppercase tracking-wide bg-no/25 text-no rounded-pill px-2 py-0.5">
-          Disputed
-        </span>
-        <div className="text-xs text-text2">
-          Reach out to the other party to resolve
+      <div className="mt-3 rounded-input border border-no/40 bg-no/10 px-3 py-2.5 flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <span className="inline-block text-[10px] font-bold uppercase tracking-wide bg-no/25 text-no rounded-pill px-2 py-0.5">
+            Disputed
+          </span>
+          <span className="text-[11px] text-text3 font-mono">
+            YES {tally.yes} · NO {tally.no}
+          </span>
         </div>
+        {hasMyRevoteRequest ? (
+          <div className="text-xs text-text2">
+            Waiting for all parties to agree to a revote…
+          </div>
+        ) : (
+          <button
+            disabled={busy}
+            onClick={handleRequestRevote}
+            className="self-start rounded-input border border-gold/50 text-gold text-xs font-semibold px-3 py-1.5 hover:bg-gold/10 active:scale-[0.97] transition disabled:opacity-40"
+          >
+            {busy ? "Sending…" : "Request Revote"}
+          </button>
+        )}
+        {error ? <div className="text-xs text-no">{error}</div> : null}
       </div>
     );
   }
@@ -233,25 +326,56 @@ export function ResolutionSection({ bet, currentUserId, onSettled }: Props) {
             voted
           </div>
         </div>
+      ) : voteChoice !== null ? (
+        // Confirmation step
+        <div className="flex flex-col gap-2">
+          <div className="text-sm text-text2">
+            Confirm:{" "}
+            <span className={voteChoice === "yes" ? "text-yes font-semibold" : "text-no font-semibold"}>
+              {voteChoice.toUpperCase()} won
+            </span>
+            ?
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              disabled={busy}
+              onClick={() => setVoteChoice(null)}
+              className="rounded-input bg-bg3 text-text2 px-3 py-2 text-xs hover:bg-bg4 disabled:opacity-40"
+            >
+              Back
+            </button>
+            <button
+              disabled={busy}
+              onClick={() => handleVote(voteChoice)}
+              className="rounded-input bg-yes text-bg font-semibold px-3 py-2 text-xs disabled:opacity-40 active:scale-[0.97] transition"
+            >
+              {busy ? "Voting…" : "Confirm"}
+            </button>
+          </div>
+          {error ? <div className="text-xs text-no">{error}</div> : null}
+        </div>
       ) : (
+        // First step: pick a side
         <div className="grid grid-cols-2 gap-2">
           <button
             disabled={busy}
-            onClick={() => handleVote("yes")}
+            onClick={() => setVoteChoice("yes")}
             className="rounded-input bg-yes/15 border border-yes/40 text-yes font-bold py-2 text-sm hover:bg-yes/25 active:scale-[0.97] transition disabled:opacity-40"
           >
             YES won
           </button>
           <button
             disabled={busy}
-            onClick={() => handleVote("no")}
+            onClick={() => setVoteChoice("no")}
             className="rounded-input bg-no/15 border border-no/40 text-no font-bold py-2 text-sm hover:bg-no/25 active:scale-[0.97] transition disabled:opacity-40"
           >
             NO won
           </button>
         </div>
       )}
-      {error ? <div className="text-xs text-no">{error}</div> : null}
+      {!myVote && voteChoice === null && error ? (
+        <div className="text-xs text-no">{error}</div>
+      ) : null}
     </div>
   );
 }

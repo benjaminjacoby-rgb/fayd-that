@@ -3,7 +3,7 @@
 // TODO: regenerate with `supabase gen types typescript` once the project is linked.
 
 export type BetCategory = "fitness" | "academics" | "social" | "finance" | "other";
-export type BetStatus = "open" | "locked" | "resolved" | "disputed" | "cancelled";
+export type BetStatus = "open" | "locked" | "closed" | "resolved" | "disputed" | "cancelled";
 export type BetScope = "friends" | "group";
 export type BetSide = "yes" | "no";
 export type BetOutcome = "win" | "lose";

@@ -237,6 +237,20 @@ export async function fillBet(
 }
 
 /**
+ * Close a bet the caller posted (or mediates): transitions status to "closed"
+ * so that resolution voting / mediation becomes available to participants.
+ * No wallet changes at this step — funds settle via settleBet.
+ */
+export async function closeBet(betId: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("bets")
+    .update({ status: "closed" })
+    .eq("id", betId);
+  if (error) throw error;
+}
+
+/**
  * Cancel a bet the caller posted: marks the bet cancelled and refunds the
  * unfilled portion of the original stake back to the poster's wallet.
  */

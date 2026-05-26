@@ -59,7 +59,7 @@ interface DbBet {
   is_concluded: boolean;
   mediator_type: "none" | "self" | "requested";
   mediator_id: string | null;
-  status: "open" | "filled" | "concluded" | "settled";
+  status: "open" | "filled" | "closed" | "concluded" | "settled";
   created_at: string;
 }
 
@@ -128,7 +128,7 @@ export async function getFeedBets(): Promise<BetView[]> {
   const { data: { user: authUser } } = await supabase.auth.getUser();
   const reactionsByBet = await loadReactionsForBets(supabase, betIds, authUser?.id ?? null);
 
-  return bets.map((bet) =>
+  const views = bets.map((bet) =>
     buildBetView(
       bet,
       contractsByBet.get(bet.id) ?? [],
@@ -138,6 +138,14 @@ export async function getFeedBets(): Promise<BetView[]> {
       reactionsByBet.get(bet.id) ?? [],
     ),
   );
+  // Fully-filled (locked) bets sink to the bottom; all others keep their
+  // original created_at DESC order.
+  views.sort((a, b) => {
+    const aFilled = a.status === "locked" ? 1 : 0;
+    const bFilled = b.status === "locked" ? 1 : 0;
+    return aFilled - bFilled;
+  });
+  return views;
 }
 
 async function loadReactionsForBets(
@@ -290,6 +298,7 @@ function buildBetView(
 
 function mapBetStatus(status: DbBet["status"]): BetStatus {
   if (status === "filled") return "locked";
+  if (status === "closed") return "closed";
   if (status === "concluded" || status === "settled") return "resolved";
   return "open";
 }
