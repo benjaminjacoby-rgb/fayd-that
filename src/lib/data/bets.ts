@@ -53,10 +53,11 @@ interface DbBet {
   audience_type: "friends" | "group" | "specific_friends" | null;
   group_id: string | null;
   end_date: string | null;
+  expires_at: string | null;
   is_concluded: boolean;
   mediator_type: "none" | "self" | "requested";
   mediator_id: string | null;
-  status: "open" | "filled" | "concluded";
+  status: "open" | "filled" | "concluded" | "settled";
   created_at: string;
 }
 
@@ -141,13 +142,25 @@ function buildBetView(
   const originalContracts = betContracts.filter((c) => c.creator_id === bet.poster_id);
   const subContractRows = betContracts.filter((c) => c.creator_id !== bet.poster_id);
 
+  // `createBet` writes a synthetic fill where filler_id === contract.creator_id
+  // to mark the poster's own stake as locked. That isn't a counter-party fill
+  // and must be excluded when computing how much of the line is taken.
+  const isCounterFill = (f: DbFill, contractCreatorId: string | null) =>
+    f.filler_id !== null && f.filler_id !== contractCreatorId;
+
   const originalFilledCents = sumCents(
-    originalContracts.flatMap((c) => fillsByContract.get(c.id) ?? []).map((f) => f.amount),
+    originalContracts
+      .flatMap((c) => (fillsByContract.get(c.id) ?? []).filter((f) => isCounterFill(f, c.creator_id)))
+      .map((f) => f.amount),
   );
 
   const subContracts: SubContractView[] = subContractRows.map((c) => {
     const subPoster = toUserLite(c.creator_id, usersById.get(c.creator_id ?? ""));
-    const filled = sumCents((fillsByContract.get(c.id) ?? []).map((f) => f.amount));
+    const filled = sumCents(
+      (fillsByContract.get(c.id) ?? [])
+        .filter((f) => isCounterFill(f, c.creator_id))
+        .map((f) => f.amount),
+    );
     return {
       id: c.id,
       bet_id: c.bet_id,
@@ -160,10 +173,13 @@ function buildBetView(
     };
   });
 
-  // ContractView entries — one per fill, sized to the fill amount. This keeps
-  // currentLineFor's weighted-probability math accurate.
+  // ContractView entries — one per *counter-party* fill, sized to that fill.
+  // Self-fills (the poster's own stake-lock marker) are excluded so the line
+  // bar doesn't read 100% filled the instant a bet is posted.
   const contractViews: ContractView[] = betContracts.flatMap((c) => {
-    const cFills = fillsByContract.get(c.id) ?? [];
+    const cFills = (fillsByContract.get(c.id) ?? []).filter((f) =>
+      isCounterFill(f, c.creator_id),
+    );
     return cFills.map((f) => {
       const posterLite = toUserLite(c.creator_id, usersById.get(c.creator_id ?? ""));
       const fillerLite = toUserLite(f.filler_id, usersById.get(f.filler_id ?? ""));
@@ -217,6 +233,7 @@ function buildBetView(
     geo_lat: null,
     geo_lng: null,
     geo_radius_meters: null,
+    expires_at: bet.expires_at,
     created_at: bet.created_at,
     resolved_at: null,
     creator,
@@ -229,7 +246,7 @@ function buildBetView(
 
 function mapBetStatus(status: DbBet["status"]): BetStatus {
   if (status === "filled") return "locked";
-  if (status === "concluded") return "resolved";
+  if (status === "concluded" || status === "settled") return "resolved";
   return "open";
 }
 

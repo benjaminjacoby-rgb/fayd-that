@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Avatar } from "./Avatar";
 import { CommentsSection } from "./CommentsSection";
+import { RelativeTime } from "./RelativeTime";
 import { formatCents, formatTimeRemaining, fullName } from "@/lib/format";
 import type { BetSide, BetView, MediatorState, Reaction, UserLite } from "@/types/db";
 
@@ -109,7 +110,12 @@ export function PostCard({
   const rest = contracts.filter((c) => c.id !== main.id);
 
   const mainRemainingCents = Math.max(0, main.stake_cents - main.filled_cents);
-  const expired = bet.status !== "open";
+  // Poster-chosen expiry. Treat null/undefined as "no expiry". A past timestamp
+  // makes the bet behave like a closed bet — no more fills.
+  const expiresAt = bet.expires_at ?? null;
+  const isExpiredByDate =
+    expiresAt !== null && new Date(expiresAt).getTime() <= Date.now();
+  const expired = bet.status !== "open" || isExpiredByDate;
   const isMyMain = main.poster.id === currentUserId;
   const isMyBet = bet.creator_id === currentUserId;
 
@@ -125,8 +131,12 @@ export function PostCard({
   const posterOdds = posterSide === "yes" ? main.yes_probability : 100 - main.yes_probability;
   const takerOdds = 100 - posterOdds;
 
-  // Filled = no more room on the main contract.
+  // Filled = no more room on the main contract (which `pickMain` always
+  // chooses as the first still-unfilled contract, falling back to the most
+  // recent when every contract on the bet is full).
   const fullyFilled = mainRemainingCents === 0;
+  const allContractsFilled =
+    contracts.length > 0 && contracts.every((c) => c.filled_cents >= c.stake_cents);
 
   // Group pill — derived from the bet's group scope. Uses the joined
   // relationship label so no extra Supabase call is needed.
@@ -140,10 +150,10 @@ export function PostCard({
   const targetedFriendCount =
     bet.scope === "friends" && !bet.group_id ? meta.target_friend_ids?.length ?? 0 : 0;
 
-  const subtitleParts: string[] = [];
-  if (bet.creator.username) subtitleParts.push(`@${bet.creator.username}`);
-  subtitleParts.push(formatTimeRemaining(bet.expiry_at));
-  const subtitle = subtitleParts.join(" · ");
+  // The username portion is static and safe to render on the server. The
+  // time-remaining portion is computed against `Date.now()` and would cause
+  // a hydration mismatch, so it's rendered through <RelativeTime/> below.
+  const usernameLabel = bet.creator.username ? `@${bet.creator.username}` : null;
 
   const handleMainFayd = () => {
     if (main.subContractId) {
@@ -164,7 +174,11 @@ export function PostCard({
   };
 
   return (
-    <article className="bg-[#141414] rounded-card overflow-hidden border border-[#222]">
+    <article
+      className={`bg-[#141414] rounded-card overflow-hidden border border-[#222] ${
+        isExpiredByDate ? "opacity-60" : allContractsFilled ? "opacity-80" : ""
+      }`}
+    >
       {/* ── Top row: avatar + question + stake summary ─────────────────── */}
       <div className="relative px-4 pt-4 pb-3 flex items-start gap-3">
         <Avatar
@@ -174,11 +188,12 @@ export function PostCard({
           size={40}
         />
         <div className="flex-1 min-w-0">
-          <h2 className="text-sm font-semibold leading-tight truncate">
-            {bet.question}
-          </h2>
+          <BetTitle text={bet.question} />
           <div className="text-text3 text-[11px] mt-1 truncate">
-            {isMyBet ? "You" : fullName(bet.creator)} · {subtitle}
+            {isMyBet ? "You" : fullName(bet.creator)}
+            {usernameLabel ? <> · {usernameLabel}</> : null}
+            {" · "}
+            <RelativeTime iso={bet.expiry_at} formatter={formatTimeRemaining} />
           </div>
         </div>
         <div className="text-right shrink-0">
@@ -235,12 +250,26 @@ export function PostCard({
         </div>
       </div>
 
-      {/* ── Mediator chip + concluded badge row ────────────────────────── */}
-      {(mediatorState || concluded) ? (
+      {/* ── Mediator chip + concluded/expired/expiry/filled badge row ──── */}
+      {(mediatorState || concluded || isExpiredByDate || expiresAt || allContractsFilled) ? (
         <div className="px-4 pb-2 flex items-center gap-2 flex-wrap">
           {concluded ? (
             <span className="text-[10px] font-bold uppercase tracking-wide bg-bg3 text-text2 rounded-pill px-2 py-0.5">
               Concluded
+            </span>
+          ) : null}
+          {allContractsFilled && !concluded ? (
+            <span className="text-[10px] font-bold uppercase tracking-wide bg-yes/15 text-yes rounded-pill px-2 py-0.5">
+              Fully filled
+            </span>
+          ) : null}
+          {isExpiredByDate ? (
+            <span className="text-[10px] font-bold uppercase tracking-wide bg-no/15 text-no rounded-pill px-2 py-0.5">
+              Expired
+            </span>
+          ) : expiresAt ? (
+            <span className="text-[10px] font-medium uppercase tracking-wide bg-bg3 text-text3 rounded-pill px-2 py-0.5">
+              Expires {formatExpiresDate(expiresAt)}
             </span>
           ) : null}
           {mediatorState ? (
@@ -274,7 +303,7 @@ export function PostCard({
       {/* ── Body block (only while there's still actionable side) ──────── */}
       {!fullyFilled && !expired && !concluded ? (
         <div className="px-4 pb-3 flex flex-col gap-3">
-          {/* Posted/your-side summary line */}
+          {/* Posted-side summary line */}
           <div className="text-xs text-text2 leading-relaxed">
             <span className="text-text font-medium">
               {isMyMain ? "You" : main.poster.first_name ?? "Poster"}
@@ -284,12 +313,6 @@ export function PostCard({
               {posterSide.toUpperCase()}
             </span>{" "}
             · <span className="font-mono tabular-nums">{posterOdds}%</span>
-            <span className="text-text3"> · </span>
-            your side is{" "}
-            <span className={takerSide === "yes" ? "text-yes font-semibold" : "text-no font-semibold"}>
-              {takerSide.toUpperCase()}
-            </span>{" "}
-            at <span className="font-mono tabular-nums">{takerOdds}%</span>
           </div>
 
         </div>
@@ -309,7 +332,11 @@ export function PostCard({
             <button
               onClick={handleMainFayd}
               disabled={isMyMain}
-              className="fayd-pulse-once w-full rounded-input bg-no text-white font-semibold text-sm py-3 transition-all duration-150 ease-out hover:bg-[#ff8585] hover:scale-[1.02] active:scale-[0.97] active:bg-[#e05555] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+              className={`fayd-pulse-once w-full rounded-input text-white font-semibold text-sm py-3 transition-all duration-150 ease-out hover:scale-[1.02] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 ${
+                takerSide === "yes"
+                  ? "bg-yes hover:bg-[#3ee07a] active:bg-[#1a9c4d]"
+                  : "bg-no hover:bg-[#ff8585] active:bg-[#e05555]"
+              }`}
             >
               Fayd That · {takerOdds}% {takerSide.toUpperCase()}
             </button>
@@ -469,6 +496,57 @@ export function PostCard({
       </div>
     </article>
   );
+}
+
+/**
+ * Bet title that wraps onto multiple lines and offers a "see more" toggle when
+ * the rendered text is taller than the collapsed clamp. Avoids the old
+ * single-line `truncate` that silently hid long titles.
+ */
+function BetTitle({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [overflowing, setOverflowing] = useState(false);
+  const ref = useRef<HTMLHeadingElement | null>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // While collapsed (line-clamp-3 applied), scrollHeight > clientHeight when
+    // the text overflows three lines. While expanded, the heights match.
+    if (expanded) {
+      setOverflowing(true);
+      return;
+    }
+    setOverflowing(el.scrollHeight - el.clientHeight > 1);
+  }, [text, expanded]);
+
+  return (
+    <div className="flex flex-col">
+      <h2
+        ref={ref}
+        className={`text-sm font-semibold leading-snug break-words ${
+          expanded ? "" : "line-clamp-3"
+        }`}
+      >
+        {text}
+      </h2>
+      {overflowing ? (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="text-text3 hover:text-text2 text-[11px] font-semibold mt-0.5 self-start"
+        >
+          {expanded ? "Show less" : "See more"}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function formatExpiresDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 function ReactionChip({ reaction, onClick }: { reaction: Reaction; onClick: () => void }) {

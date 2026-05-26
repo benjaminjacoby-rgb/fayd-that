@@ -80,16 +80,19 @@ export async function getOrCreateConversationWithFriends(friendIds: string[]): P
   }
 
   // 3. None matched — create a fresh conversation + participants.
+  //    Generate the id client-side so we don't rely on `.select()` returning
+  //    the new row — the SELECT RLS policy on `conversations` requires a
+  //    matching participant row, which doesn't exist yet at RETURNING time,
+  //    which would make `.single()` throw "no rows returned".
+  const conversationId = crypto.randomUUID();
   const convType = friendIds.length === 1 ? "direct" : "group";
-  const { data: convo, error: cInsErr } = await supabase
+  const { error: cInsErr } = await supabase
     .from("conversations")
-    .insert({ type: convType, group_id: null })
-    .select("id")
-    .single();
+    .insert({ id: conversationId, type: convType, group_id: null });
   if (cInsErr) throw cInsErr;
 
   const partRows = Array.from(targetIds).map((uid) => ({
-    conversation_id: convo.id,
+    conversation_id: conversationId,
     user_id: uid,
   }));
   const { error: pInsErr } = await supabase
@@ -97,7 +100,7 @@ export async function getOrCreateConversationWithFriends(friendIds: string[]): P
     .insert(partRows);
   if (pInsErr) throw pInsErr;
 
-  return convo.id;
+  return conversationId;
 }
 
 /**
@@ -137,20 +140,19 @@ export async function getOrCreateDirectConversation(otherUserId: string): Promis
     }
   }
 
-  const { data: convo, error: cErr } = await supabase
+  const conversationId = crypto.randomUUID();
+  const { error: cErr } = await supabase
     .from("conversations")
-    .insert({ type: "direct", group_id: null })
-    .select("id")
-    .single();
+    .insert({ id: conversationId, type: "direct", group_id: null });
   if (cErr) throw cErr;
 
   const { error: pInsErr } = await supabase.from("conversation_participants").insert([
-    { conversation_id: convo.id, user_id: authUser.id },
-    { conversation_id: convo.id, user_id: otherUserId },
+    { conversation_id: conversationId, user_id: authUser.id },
+    { conversation_id: conversationId, user_id: otherUserId },
   ]);
   if (pInsErr) throw pInsErr;
 
-  return convo.id;
+  return conversationId;
 }
 
 export interface SendMessageInput {

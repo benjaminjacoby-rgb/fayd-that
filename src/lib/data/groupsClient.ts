@@ -47,27 +47,10 @@ export async function createGroup(input: CreateGroupInput): Promise<GroupView> {
 
   const { error: mErr } = await supabase.from("group_members").insert(memberRows);
   if (mErr) throw mErr;
-
-  // Spin up a backing group chat in the conversations table so the group shows
-  // up in the messages screen automatically. Best-effort — failure here
-  // shouldn't break group creation, since the chat can be backfilled later.
-  try {
-    const { data: convo } = await supabase
-      .from("conversations")
-      .insert({ type: "group", group_id: group.id })
-      .select("id")
-      .single();
-    if (convo?.id) {
-      const partRows = memberRows.map((m) => ({
-        conversation_id: convo.id,
-        user_id: m.user_id,
-      }));
-      await supabase.from("conversation_participants").insert(partRows);
-    }
-  } catch {
-    // Swallow — the group itself was created successfully; the chat can be
-    // reconciled later if this insert was blocked (e.g. RLS misconfig).
-  }
+  // The backing group chat conversation + participant rows are created by
+  // Postgres triggers (see migration 008): one trigger on `groups` spins up
+  // the conversation, another on `group_members` adds each new member to
+  // `conversation_participants`. Nothing more to do client-side.
 
   // Fetch the admin's profile so the returned GroupView has a real `admin` UserLite.
   const { data: meProfile } = await supabase

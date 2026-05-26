@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "./Avatar";
+import { RelativeTime } from "./RelativeTime";
 import { fullName } from "@/lib/format";
 import { getComments, postComment } from "@/lib/data/commentsClient";
 import type { CommentView, UserLite } from "@/types/db";
@@ -21,6 +22,7 @@ export function CommentsSection({ betId, currentUser, initial }: Props) {
   const [text, setText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const cancelled = useRef(false);
 
   useEffect(() => {
@@ -45,11 +47,22 @@ export function CommentsSection({ betId, currentUser, initial }: Props) {
     const trimmed = text.trim();
     if (!trimmed || submitting) return;
     setSubmitting(true);
+    setError(null);
     try {
-      const inserted = await postComment({ betId, content: trimmed });
+      const row = await postComment({ betId, content: trimmed });
+      // Compose the view locally from the inserted row + currentUser so the
+      // new comment appears immediately without depending on a follow-up join.
+      const inserted: CommentView = {
+        id: row.id,
+        user: currentUser,
+        text: row.content,
+        created_at: row.created_at,
+      };
       setComments((prev) => [inserted, ...prev]);
       setText("");
     } catch (err) {
+      const msg = err instanceof Error ? err.message : "Could not post comment";
+      setError(msg);
       console.warn("postComment failed", err);
     } finally {
       setSubmitting(false);
@@ -76,9 +89,11 @@ export function CommentsSection({ betId, currentUser, initial }: Props) {
               <div className="flex-1 min-w-0">
                 <div className="flex items-baseline gap-1.5 flex-wrap">
                   <span className="text-sm font-semibold text-text2">{fullName(c.user)}</span>
-                  <span className="text-[10px] text-text3 font-mono">
-                    {formatRelative(c.created_at)}
-                  </span>
+                  <RelativeTime
+                    iso={c.created_at}
+                    formatter={formatRelative}
+                    className="text-[10px] text-text3 font-mono"
+                  />
                 </div>
                 <div className="text-sm text-[#cfcfcf] break-words leading-snug">
                   {c.text}
@@ -117,9 +132,10 @@ export function CommentsSection({ betId, currentUser, initial }: Props) {
           disabled={!text.trim() || submitting}
           className="rounded-pill bg-yes text-bg font-semibold text-xs px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.97] transition"
         >
-          Post
+          {submitting ? "Posting…" : "Post"}
         </button>
       </form>
+      {error ? <div className="text-xs text-no">{error}</div> : null}
     </div>
   );
 }

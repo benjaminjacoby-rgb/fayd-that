@@ -14,9 +14,30 @@ import {
   type MyPostView,
   type PendingContractView,
 } from "@/lib/sessionState";
-import type { UserLite } from "@/types/db";
+import type { BetView, UserLite } from "@/types/db";
 
-export function PendingClient({ currentUser }: { currentUser: UserLite }) {
+export interface PendingPostSeed {
+  bet: BetView;
+}
+
+export interface PendingContractSeed {
+  id: string;
+  bet: BetView;
+  side: PendingContractView["side"];
+  yesPercent: number;
+  stakeCents: number;
+  createdAt: string;
+}
+
+export function PendingClient({
+  currentUser,
+  initialPosts,
+  initialContracts,
+}: {
+  currentUser: UserLite;
+  initialPosts: PendingPostSeed[];
+  initialContracts: PendingContractSeed[];
+}) {
   useSessionStore(); // re-render on session-store changes
   const router = useRouter();
   // Defer reading store state until after mount so SSR + hydration match.
@@ -24,19 +45,39 @@ export function PendingClient({ currentUser }: { currentUser: UserLite }) {
   useEffect(() => setMounted(true), []);
   const onSettled = () => router.refresh();
 
-  // Only show items created this session — the pre-seeded mock fixtures are
-  // intentionally hidden so the tab reflects real activity (or an empty state).
-  const posts: MyPostView[] = mounted
+  // Server-loaded pending activity. Anything created/filled this session
+  // takes precedence so optimistic UI from createBet/fillBet wins over a
+  // stale server snapshot.
+  const sessionPosts = mounted
     ? getMyPosts().filter((p) => p.source === "session")
     : [];
-  // If the user both posted and filled the same bet, dedupe — the post row
-  // already represents that bet on this screen.
-  const postedBetIds = new Set(posts.map((p) => p.bet.id));
-  const actives: PendingContractView[] = mounted
-    ? getMyActiveContracts().filter(
-        (a) => a.source === "session" && !postedBetIds.has(a.bet.id),
-      )
+  const sessionActives = mounted
+    ? getMyActiveContracts().filter((a) => a.source === "session")
     : [];
+
+  const sessionPostBetIds = new Set(sessionPosts.map((p) => p.bet.id));
+  const serverPosts: MyPostView[] = initialPosts
+    .filter((p) => !sessionPostBetIds.has(p.bet.id))
+    .map((p) => ({ bet: p.bet, source: "seed" as const }));
+  const posts: MyPostView[] = [...sessionPosts, ...serverPosts];
+
+  const postedBetIds = new Set(posts.map((p) => p.bet.id));
+  const sessionActiveIds = new Set(sessionActives.map((a) => a.id));
+  const serverActives: PendingContractView[] = initialContracts
+    .filter((c) => !postedBetIds.has(c.bet.id) && !sessionActiveIds.has(c.id))
+    .map((c) => ({
+      id: c.id,
+      bet: c.bet,
+      side: c.side,
+      yesPercent: c.yesPercent,
+      stakeCents: c.stakeCents,
+      createdAt: c.createdAt,
+      source: "seed" as const,
+    }));
+  const actives: PendingContractView[] = [
+    ...sessionActives.filter((a) => !postedBetIds.has(a.bet.id)),
+    ...serverActives,
+  ];
 
   if (mounted && actives.length === 0 && posts.length === 0) {
     return <EmptyState />;

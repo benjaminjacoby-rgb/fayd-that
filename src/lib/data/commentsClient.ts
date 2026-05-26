@@ -52,10 +52,23 @@ export async function getComments(betId: string): Promise<CommentView[]> {
   }));
 }
 
+export interface PostedComment {
+  id: string;
+  bet_id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
+}
+
+/**
+ * Insert a comment and return the raw row. The caller composes a CommentView
+ * from this + a local UserLite, so the success path no longer depends on the
+ * users! FK embed resolving (which was silently failing the optimistic update).
+ */
 export async function postComment(input: {
   betId: string;
   content: string;
-}): Promise<CommentView> {
+}): Promise<PostedComment> {
   const supabase = createClient();
   const {
     data: { user: authUser },
@@ -66,16 +79,8 @@ export async function postComment(input: {
   const { data, error } = await supabase
     .from("comments")
     .insert({ bet_id: input.betId, user_id: authUser.id, content: trimmed })
-    .select(
-      "id, bet_id, user_id, content, created_at, user:users!comments_user_id_fkey(id, username, full_name)",
-    )
+    .select("id, bet_id, user_id, content, created_at")
     .single();
   if (error) throw error;
-  const row = data as unknown as DbCommentRow;
-  return {
-    id: row.id,
-    user: toUserLite(row.user, row.user_id),
-    text: row.content,
-    created_at: row.created_at,
-  };
+  return data as PostedComment;
 }

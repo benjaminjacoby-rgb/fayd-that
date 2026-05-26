@@ -241,6 +241,12 @@ export function makeHandlers({
     amountCents: number;
   }) {
     const { bet, subContractId, side, amountCents } = params;
+    // Reject fills on bets whose poster-chosen expiration has passed. The
+    // server-side fillBet repeats this check against fresh DB state.
+    if (bet.expires_at && new Date(bet.expires_at).getTime() <= Date.now()) {
+      setToast("This bet has expired");
+      return;
+    }
     if (subContractId) {
       // Filling a sub-contract.
       let pushedYesProb = 0;
@@ -284,6 +290,15 @@ export function makeHandlers({
         });
       }
       setToast(`Filled ${formatCents(amountCents)} on ${side.toUpperCase()}`);
+      // Persist the sub-contract fill so the feed picks it up on refresh.
+      if (!USE_MOCK_DATA) {
+        fillBetRemote(amountCents, bet.id, subContractId)
+          .then(() => onRefresh?.())
+          .catch((e) => {
+            const msg = e instanceof Error ? e.message : "Fill failed";
+            setToast(msg);
+          });
+      }
       return;
     }
     // Filling the original line.
@@ -323,10 +338,14 @@ export function makeHandlers({
     setToast(`Filled ${formatCents(amountCents)} on ${side.toUpperCase()}`);
     if (!USE_MOCK_DATA) {
       // Lock the filler's stake in their wallet, then refresh so the new
-      // balance reaches the top bar.
-      fillBetRemote(amountCents)
+      // balance reaches the top bar. The remote re-checks expires_at against
+      // current DB state, so a stale UI cannot beat the cutoff.
+      fillBetRemote(amountCents, bet.id)
         .then(() => onRefresh?.())
-        .catch(() => {});
+        .catch((e) => {
+          const msg = e instanceof Error ? e.message : "Fill failed";
+          setToast(msg);
+        });
       // Notify the original poster that someone faded their bet.
       if (bet.creator_id && bet.creator_id !== currentUser.id) {
         insertNotification({

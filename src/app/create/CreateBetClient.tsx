@@ -88,6 +88,8 @@ export function CreateBetClient({
   const [radius, setRadius] = useState<number>(500);
   const [targetFriendIds, setTargetFriendIds] = useState<string[]>([]);
   const [mediatorChoice, setMediatorChoice] = useState<MediatorChoice>("none");
+  // YYYY-MM-DD or "" — sent through to Supabase as either ISO end-of-day or null.
+  const [expiresOn, setExpiresOn] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -126,6 +128,12 @@ export function CreateBetClient({
     try {
       // Default expiry kept for backend compatibility (24h).
       const expiry_at = new Date(Date.now() + 24 * 3600_000).toISOString();
+      // Optional user-chosen expiry. The native date input gives YYYY-MM-DD
+      // (local), which we widen to end-of-day so the bet stays fillable for
+      // the entirety of the chosen date.
+      const expires_at: string | null = expiresOn
+        ? new Date(`${expiresOn}T23:59:59`).toISOString()
+        : null;
       const effectiveMediatorChoice: MediatorChoice = showMediatorPicker ? mediatorChoice : "none";
       const mediatorState: MediatorState | undefined =
         effectiveMediatorChoice === "self"
@@ -149,6 +157,7 @@ export function CreateBetClient({
           geo_lat: null,
           geo_lng: null,
           geo_radius_meters: scope === "geo" ? radius : null,
+          expires_at,
           created_at: new Date().toISOString(),
           resolved_at: null,
           creator: currentUser,
@@ -197,6 +206,7 @@ export function CreateBetClient({
         yes_probability: yesProbability,
         stake_cents: stakeCents,
         expiry_at,
+        expires_at,
         scope,
         group_id: scope === "group" ? groupId : null,
         geo_radius_meters: scope === "geo" ? radius : null,
@@ -376,6 +386,30 @@ export function CreateBetClient({
           )}
         </Section>
       ) : null}
+
+      <Section label="Expires on (optional)">
+        <div className="flex items-center gap-2">
+          <input
+            type="date"
+            value={expiresOn}
+            min={new Date().toISOString().slice(0, 10)}
+            onChange={(e) => setExpiresOn(e.target.value)}
+            className="bg-bg3 rounded-input px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-yes/40 flex-1"
+          />
+          {expiresOn ? (
+            <button
+              type="button"
+              onClick={() => setExpiresOn("")}
+              className="text-xs text-text3 hover:text-text2 px-2"
+            >
+              Clear
+            </button>
+          ) : null}
+        </div>
+        <p className="text-text3 text-[11px] mt-1">
+          Leave blank if the bet should never expire.
+        </p>
+      </Section>
 
       {showMediatorPicker ? (
         <Section label="Select mediator">

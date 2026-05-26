@@ -49,6 +49,9 @@ export interface BetRow {
   geo_lat: number | null;
   geo_lng: number | null;
   geo_radius_meters: number | null;
+  /** Optional poster-chosen expiration (separate from `expiry_at`). When set
+   *  and in the past, the bet is treated as expired and cannot be filled. */
+  expires_at?: string | null;
   created_at: string;
   resolved_at: string | null;
 }
