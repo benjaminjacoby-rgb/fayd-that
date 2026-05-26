@@ -411,6 +411,7 @@ export function PostCard({
                       first={c.poster.first_name}
                       lastInitial={c.poster.last_name_initial}
                       color={c.poster.avatar_color}
+                      imageUrl={c.poster.avatar_url}
                       size={32}
                     />
                     <div className="flex-1 min-w-0">

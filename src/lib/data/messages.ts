@@ -11,6 +11,7 @@ interface DbUser {
   id: string;
   username: string | null;
   full_name: string | null;
+  avatar_url: string | null;
 }
 
 interface DbGroup {
@@ -98,7 +99,7 @@ export async function getInbox(): Promise<{ dms: ConversationView[]; groups: Con
     ...allMsgs.map((m) => m.sender_id).filter((x): x is string => !!x),
   ]);
   const { data: usersData, error: uErr } = userIds.length
-    ? await supabase.from("users").select("id, username, full_name").in("id", userIds)
+    ? await supabase.from("users").select("id, username, full_name, avatar_url").in("id", userIds)
     : { data: [] as DbUser[], error: null };
   if (uErr) throw uErr;
   const usersById = new Map(((usersData ?? []) as DbUser[]).map((u) => [u.id, u]));
@@ -121,7 +122,7 @@ export async function getInbox(): Promise<{ dms: ConversationView[]; groups: Con
 
     if (c.type === "direct") {
       const otherId = ps.find((id) => id !== authUser.id);
-      const other = otherId ? toUserLite(usersById.get(otherId) ?? { id: otherId, username: null, full_name: null }) : undefined;
+      const other = otherId ? toUserLite(usersById.get(otherId) ?? { id: otherId, username: null, full_name: null, avatar_url: null }) : undefined;
       dms.push({
         id: c.id,
         kind: "dm",
@@ -139,7 +140,7 @@ export async function getInbox(): Promise<{ dms: ConversationView[]; groups: Con
             invite_code: g.join_code,
             admin_id: g.admin_id ?? "",
             created_at: g.created_at,
-            admin: toUserLite(usersById.get(g.admin_id ?? "") ?? { id: g.admin_id ?? "", username: null, full_name: null }),
+            admin: toUserLite(usersById.get(g.admin_id ?? "") ?? { id: g.admin_id ?? "", username: null, full_name: null, avatar_url: null }),
             member_count: ps.length,
             is_admin: g.admin_id === authUser.id,
             pending_join_count: 0,
@@ -207,13 +208,13 @@ export async function getConversationById(id: string): Promise<{
   const allUserIds = uniq([...participantIds, ...senderIds]);
 
   const { data: usersData, error: uErr } = allUserIds.length
-    ? await supabase.from("users").select("id, username, full_name").in("id", allUserIds)
+    ? await supabase.from("users").select("id, username, full_name, avatar_url").in("id", allUserIds)
     : { data: [] as DbUser[], error: null };
   if (uErr) throw uErr;
   const usersById = new Map(((usersData ?? []) as DbUser[]).map((u) => [u.id, u]));
 
   const participants = participantIds.map((pid) =>
-    toUserLite(usersById.get(pid) ?? { id: pid, username: null, full_name: null }),
+    toUserLite(usersById.get(pid) ?? { id: pid, username: null, full_name: null, avatar_url: null }),
   );
   const messages = ((msgs ?? []) as DbMessage[]).map((m) => toChatMessageView(m, usersById));
 
@@ -222,7 +223,7 @@ export async function getConversationById(id: string): Promise<{
   if (c.type === "direct") {
     const otherId = participantIds.find((pid) => pid !== authUser.id);
     const other = otherId
-      ? toUserLite(usersById.get(otherId) ?? { id: otherId, username: null, full_name: null })
+      ? toUserLite(usersById.get(otherId) ?? { id: otherId, username: null, full_name: null, avatar_url: null })
       : undefined;
     view = {
       id: c.id,
@@ -244,7 +245,7 @@ export async function getConversationById(id: string): Promise<{
           invite_code: g.join_code,
           admin_id: g.admin_id ?? "",
           created_at: g.created_at,
-          admin: toUserLite(usersById.get(g.admin_id ?? "") ?? { id: g.admin_id ?? "", username: null, full_name: null }),
+          admin: toUserLite(usersById.get(g.admin_id ?? "") ?? { id: g.admin_id ?? "", username: null, full_name: null, avatar_url: null }),
           member_count: participantIds.length,
           is_admin: g.admin_id === authUser.id,
           pending_join_count: 0,
@@ -269,6 +270,7 @@ function toChatMessageView(m: DbMessage, usersById: Map<string, DbUser>): ChatMe
       id: m.sender_id ?? "unknown",
       username: null,
       full_name: null,
+      avatar_url: null,
     },
   );
   if (m.bet_id) {
@@ -301,6 +303,7 @@ function toUserLite(u: DbUser): UserLite {
     last_name_initial: last && last.length ? last : null,
     username: u.username,
     avatar_color: pickAvatarColor(u.id),
+    avatar_url: u.avatar_url ?? null,
   };
 }
 

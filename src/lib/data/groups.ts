@@ -14,6 +14,7 @@ interface DbUser {
   id: string;
   username: string | null;
   full_name: string | null;
+  avatar_url: string | null;
 }
 
 /**
@@ -59,7 +60,7 @@ export async function getGroupsForCurrentUser(): Promise<GroupView[]> {
   if (adminIds.length) {
     const { data: adminsData, error: aErr } = await supabase
       .from("users")
-      .select("id, username, full_name")
+      .select("id, username, full_name, avatar_url")
       .in("id", adminIds);
     if (aErr) throw aErr;
     for (const a of (adminsData ?? []) as DbUser[]) adminsById.set(a.id, a);
@@ -98,6 +99,7 @@ function toUserLite(id: string | null | undefined, u: DbUser | undefined): UserL
     last_name_initial: last,
     username: u?.username ?? null,
     avatar_color: pickAvatarColor(safeId),
+    avatar_url: u?.avatar_url ?? null,
   };
 }
 

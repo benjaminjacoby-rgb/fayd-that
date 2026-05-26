@@ -93,7 +93,7 @@ export function ProfileClient({
           <ul className="flex flex-col gap-2">
             {friends.slice(0, 6).map((f) => (
               <li key={f.id} className="flex items-center gap-3">
-                <Avatar first={f.first_name} lastInitial={f.last_name_initial} color={f.avatar_color} size={32} />
+                <Avatar first={f.first_name} lastInitial={f.last_name_initial} color={f.avatar_color} imageUrl={f.avatar_url} size={32} />
                 <div className="flex-1">
                   <div className="text-sm">{fullName(f)}</div>
                   <div className="text-text3 text-xs">@{f.username ?? "—"}</div>

@@ -268,3 +268,81 @@ export async function cancelBet(params: {
     await creditWalletCents(params.refundCents);
   }
 }
+
+/**
+ * Poster or mediator marks the bet as concluded — flips is_concluded and
+ * status='concluded' so the feed surface treats it as done. Wallet settlement
+ * is a separate flow (settleBet RPC).
+ */
+export async function markBetConcluded(betId: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("bets")
+    .update({ status: "concluded", is_concluded: true })
+    .eq("id", betId);
+  if (error) throw error;
+}
+
+/**
+ * Accept an open mediator-request slot on a bet. RLS allows this only when
+ * `mediator_type='requested'` and `mediator_id IS NULL`, and the new value
+ * must equal `auth.uid()`.
+ */
+export async function acceptMediator(betId: string): Promise<void> {
+  const supabase = createClient();
+  const {
+    data: { user: authUser },
+  } = await supabase.auth.getUser();
+  if (!authUser) throw new Error("Not authenticated");
+  const { error } = await supabase
+    .from("bets")
+    .update({ mediator_id: authUser.id })
+    .eq("id", betId)
+    .eq("mediator_type", "requested")
+    .is("mediator_id", null);
+  if (error) throw error;
+}
+
+/**
+ * Post a new sub-contract (a counter-line) on an existing bet. Inserts the
+ * contract row + a self-fill marker (matches how createBet locks the poster's
+ * stake), then deducts the stake from the caller's wallet.
+ */
+export async function postSubContract(input: {
+  betId: string;
+  posterSide: BetSide;
+  yesProbability: number;
+  stakeCents: number;
+}): Promise<string> {
+  const supabase = createClient();
+  const {
+    data: { user: authUser },
+  } = await supabase.auth.getUser();
+  if (!authUser) throw new Error("Not authenticated");
+
+  const { data: contract, error: cErr } = await supabase
+    .from("contracts")
+    .insert({
+      bet_id: input.betId,
+      creator_id: authUser.id,
+      position: input.posterSide.toUpperCase(),
+      odds: input.yesProbability,
+      stake_amount: input.stakeCents / 100,
+      amount_remaining: 0,
+      is_filled: true,
+    })
+    .select("id")
+    .single();
+  if (cErr) throw cErr;
+  const contractId = (contract as { id: string }).id;
+
+  const { error: fErr } = await supabase.from("fills").insert({
+    contract_id: contractId,
+    filler_id: authUser.id,
+    amount: input.stakeCents / 100,
+  });
+  if (fErr) throw fErr;
+
+  await deductWalletCents(input.stakeCents);
+  return contractId;
+}

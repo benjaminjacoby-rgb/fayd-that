@@ -80,6 +80,7 @@ export function BetDetailSheet({
             first={bet.creator.first_name}
             lastInitial={bet.creator.last_name_initial}
             color={bet.creator.avatar_color}
+            imageUrl={bet.creator.avatar_url}
             size={28}
           />
           <span className="text-sm text-text2">{fullName(bet.creator)}</span>
@@ -187,6 +188,7 @@ function OfferRow({
           first={offer.proposer.first_name}
           lastInitial={offer.proposer.last_name_initial}
           color={offer.proposer.avatar_color}
+          imageUrl={offer.proposer.avatar_url}
           size={24}
         />
         <span className="text-sm flex-1 truncate">{fullName(offer.proposer)}</span>
@@ -254,7 +256,7 @@ function SideBadge({
 }) {
   return (
     <div className="flex items-center gap-1.5">
-      <Avatar first={user.first_name} lastInitial={user.last_name_initial} color={user.avatar_color} size={22} />
+      <Avatar first={user.first_name} lastInitial={user.last_name_initial} color={user.avatar_color} imageUrl={user.avatar_url} size={22} />
       <span className={`text-sm ${highlight ? "font-semibold" : ""}`}>
         {highlight ? "You" : fullName(user)}
       </span>

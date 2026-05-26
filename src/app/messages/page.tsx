@@ -49,6 +49,7 @@ export default async function MessagesPage() {
     last_name_initial: f.last_name_initial,
     username: f.username,
     avatar_color: f.avatar_color,
+    avatar_url: f.avatar_url ?? null,
   }));
 
   return (

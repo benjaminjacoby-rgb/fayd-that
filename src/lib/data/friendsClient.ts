@@ -121,6 +121,7 @@ function toUserRow(u: DbUser): UserRow {
     first_name: first,
     last_name_initial: last && last.length ? last : null,
     avatar_color: pickAvatarColor(u.id),
+    avatar_url: u.avatar_url ?? null,
     stripe_customer_id: null,
     wallet_balance_cents: 0,
     created_at: "",

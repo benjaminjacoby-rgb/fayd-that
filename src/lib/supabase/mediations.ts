@@ -9,7 +9,7 @@ export async function getMediationsForUser(userId: string) {
       *,
       bet:bets(
         *,
-        participants:bet_participants(*, user:users(id, first_name, last_name_initial, username, avatar_color))
+        participants:bet_participants(*, user:users(id, full_name, username, avatar_url))
       )
     `)
     .eq("mediator_id", userId)

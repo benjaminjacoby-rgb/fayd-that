@@ -193,7 +193,7 @@ export function FriendsClient({
           <ul className="flex flex-col divide-y divide-bg3 mt-2">
             {friends.map((f) => (
               <li key={f.id} className="flex items-center gap-3 py-3">
-                <Avatar first={f.first_name} lastInitial={f.last_name_initial} color={f.avatar_color} size={40} />
+                <Avatar first={f.first_name} lastInitial={f.last_name_initial} color={f.avatar_color} imageUrl={f.avatar_url} size={40} />
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium truncate">{fullName(f)}</div>
                   <div className="text-text3 text-xs">@{f.username ?? "—"}</div>
@@ -262,7 +262,7 @@ export function FriendsClient({
             <ul className="flex flex-col divide-y divide-bg3 mt-3">
               {searchResults.map(({ user, relation }) => (
                 <li key={user.id} className="flex items-center gap-3 py-3">
-                  <Avatar first={user.first_name} lastInitial={user.last_name_initial} color={user.avatar_color} size={36} />
+                  <Avatar first={user.first_name} lastInitial={user.last_name_initial} color={user.avatar_color} imageUrl={user.avatar_url} size={36} />
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium truncate">{fullName(user)}</div>
                     <div className="text-text3 text-xs">@{user.username ?? "—"}</div>
@@ -276,6 +276,7 @@ export function FriendsClient({
                         last_name_initial: user.last_name_initial,
                         username: user.username,
                         avatar_color: user.avatar_color,
+                        avatar_url: user.avatar_url ?? null,
                       })
                     }
                   />
@@ -350,7 +351,7 @@ function RequestRow({
 }) {
   return (
     <li className="bg-bg2 rounded-card p-3 flex items-center gap-3">
-      <Avatar first={req.other.first_name} lastInitial={req.other.last_name_initial} color={req.other.avatar_color} size={40} />
+      <Avatar first={req.other.first_name} lastInitial={req.other.last_name_initial} color={req.other.avatar_color} imageUrl={req.other.avatar_url} size={40} />
       <div className="flex-1 min-w-0">
         <div className="text-sm font-medium">{fullName(req.other)}</div>
         <div className="text-text3 text-[11px]">
@@ -427,6 +428,7 @@ function ContactsSection({
                   first={m.user.first_name}
                   lastInitial={m.user.last_name_initial}
                   color={m.user.avatar_color}
+                  imageUrl={m.user.avatar_url}
                   size={36}
                 />
                 <div className="flex-1 min-w-0">

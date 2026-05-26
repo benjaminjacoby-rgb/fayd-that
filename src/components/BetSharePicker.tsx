@@ -40,6 +40,7 @@ export function BetSharePicker({
                       first={b.creator.first_name}
                       lastInitial={b.creator.last_name_initial}
                       color={b.creator.avatar_color}
+                      imageUrl={b.creator.avatar_url}
                       size={36}
                     />
                     <div className="flex-1 min-w-0">

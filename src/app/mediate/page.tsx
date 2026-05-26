@@ -44,12 +44,12 @@ export default async function MediatePage() {
         parties: (m.bet?.participants ?? []).map(
           (p: {
             user_id: string;
-            user: { first_name: string | null; last_name_initial: string | null; avatar_color: string };
+            user: { full_name: string | null; username: string | null };
             side: "yes" | "no";
           }) => ({
             userId: p.user_id,
-            name: `${p.user.first_name ?? "?"} ${p.user.last_name_initial ?? ""}.`,
-            color: p.user.avatar_color,
+            name: p.user.full_name?.trim() || (p.user.username ? `@${p.user.username}` : "—"),
+            color: "yes",
             side: p.side,
             evidence: "—",
           }),

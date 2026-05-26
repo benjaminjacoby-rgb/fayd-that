@@ -96,6 +96,7 @@ export default async function ChatPage({ params }: { params: { id: string } }) {
             last_name_initial: me.last_name_initial,
             username: me.username,
             avatar_color: me.avatar_color,
+            avatar_url: me.avatar_url ?? null,
           }}
         />
       </main>

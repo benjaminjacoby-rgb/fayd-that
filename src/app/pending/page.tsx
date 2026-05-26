@@ -41,6 +41,7 @@ export default async function PendingPage() {
         last_name_initial: userRow.last_name_initial,
         username: userRow.username,
         avatar_color: userRow.avatar_color ?? pickAvatarColor(userRow.id),
+        avatar_url: userRow.avatar_url ?? null,
       }
     : {
         id: MOCK_CURRENT_USER.id,

@@ -11,7 +11,13 @@ import { addMyActiveContract } from "@/lib/sessionState";
 import { formatCents } from "@/lib/format";
 import { USE_MOCK_DATA } from "@/lib/config";
 import { insertNotification } from "@/lib/data/notificationsClient";
-import { cancelBet as cancelBetRemote, fillBet as fillBetRemote } from "@/lib/data/betsClient";
+import {
+  acceptMediator as acceptMediatorRemote,
+  cancelBet as cancelBetRemote,
+  fillBet as fillBetRemote,
+  markBetConcluded as markBetConcludedRemote,
+  postSubContract as postSubContractRemote,
+} from "@/lib/data/betsClient";
 import { toggleReaction } from "@/lib/data/reactionsClient";
 import type {
   BetSide,
@@ -386,10 +392,11 @@ export function makeHandlers({
     stakeCents: StakeTierCents;
   }) {
     const { bet, yesProbability, posterSide, stakeCents } = params;
+    const tempSubId = `sc-new-${Date.now()}`;
     updateBet(bet.id, (b) => {
       const meta = b.post_meta!;
       const newSub: SubContractView = {
-        id: `sc-new-${Date.now()}`,
+        id: tempSubId,
         bet_id: bet.id,
         poster: currentUser,
         poster_side: posterSide,
@@ -401,6 +408,28 @@ export function makeHandlers({
       return { ...b, post_meta: { ...meta, sub_contracts: [newSub, ...meta.sub_contracts] } };
     });
     setToast(`Posted · ${posterSide.toUpperCase()} @ ${yesProbability}% for ${formatCents(stakeCents)}`);
+    if (USE_MOCK_DATA) return;
+    postSubContractRemote({
+      betId: bet.id,
+      posterSide,
+      yesProbability,
+      stakeCents,
+    })
+      .then(() => onRefresh?.())
+      .catch((e) => {
+        // Rollback optimistic sub-contract on failure.
+        updateBet(bet.id, (b) => {
+          const meta = b.post_meta!;
+          return {
+            ...b,
+            post_meta: {
+              ...meta,
+              sub_contracts: meta.sub_contracts.filter((s) => s.id !== tempSubId),
+            },
+          };
+        });
+        setToast(e instanceof Error ? `Post failed · ${e.message}` : "Post failed");
+      });
   }
 
   function onAcceptMediator(bet: BetView) {
@@ -415,6 +444,32 @@ export function makeHandlers({
       };
     });
     setToast("You're now mediating this bet");
+    if (USE_MOCK_DATA) return;
+    acceptMediatorRemote(bet.id)
+      .then(() => {
+        // Notify the poster that someone took the mediator role.
+        if (bet.creator_id && bet.creator_id !== currentUser.id) {
+          insertNotification({
+            userId: bet.creator_id,
+            type: "mediator_accepted",
+            actorId: currentUser.id,
+            referenceId: bet.id,
+            referenceType: "bet",
+          }).catch(() => {});
+        }
+        onRefresh?.();
+      })
+      .catch((e) => {
+        // Rollback the chip back to "requested".
+        updateBet(bet.id, (b) => {
+          const meta = b.post_meta!;
+          return {
+            ...b,
+            post_meta: { ...meta, mediator: { mode: "requested" } },
+          };
+        });
+        setToast(e instanceof Error ? `Couldn't accept · ${e.message}` : "Couldn't accept mediator");
+      });
   }
 
   function onMarkConcluded(bet: BetView) {
@@ -423,22 +478,34 @@ export function makeHandlers({
       return { ...b, post_meta: { ...meta, concluded: true } };
     });
     setToast("Bet marked as concluded");
-    // Notify everyone who filled this bet that it was resolved.
-    if (!USE_MOCK_DATA) {
-      const counterIds = new Set<string>();
-      for (const c of bet.contracts ?? []) {
-        if (c.yes_user_id && c.yes_user_id !== currentUser.id) counterIds.add(c.yes_user_id);
-        if (c.no_user_id && c.no_user_id !== currentUser.id) counterIds.add(c.no_user_id);
-      }
-      for (const uid of counterIds) {
-        insertNotification({
-          userId: uid,
-          type: "bet_resolved",
-          referenceId: bet.id,
-          referenceType: "bet",
-        }).catch(() => {});
-      }
-    }
+    if (USE_MOCK_DATA) return;
+    markBetConcludedRemote(bet.id)
+      .then(() => {
+        // Notify everyone who filled this bet that it was resolved.
+        const counterIds = new Set<string>();
+        for (const c of bet.contracts ?? []) {
+          if (c.yes_user_id && c.yes_user_id !== currentUser.id) counterIds.add(c.yes_user_id);
+          if (c.no_user_id && c.no_user_id !== currentUser.id) counterIds.add(c.no_user_id);
+        }
+        for (const uid of counterIds) {
+          insertNotification({
+            userId: uid,
+            type: "bet_resolved",
+            actorId: currentUser.id,
+            referenceId: bet.id,
+            referenceType: "bet",
+          }).catch(() => {});
+        }
+        onRefresh?.();
+      })
+      .catch((e) => {
+        // Rollback the badge.
+        updateBet(bet.id, (b) => {
+          const meta = b.post_meta!;
+          return { ...b, post_meta: { ...meta, concluded: false } };
+        });
+        setToast(e instanceof Error ? `Couldn't conclude · ${e.message}` : "Couldn't mark concluded");
+      });
   }
 
   function onCancelBet(bet: BetView) {

@@ -6,6 +6,7 @@ interface DbUser {
   id: string;
   username: string | null;
   full_name: string | null;
+  avatar_url: string | null;
 }
 
 export interface PendingFriendRequest {
@@ -39,7 +40,7 @@ export async function getFriendsForCurrentUserLite(): Promise<UserLite[]> {
 
   const { data: users, error: uErr } = await supabase
     .from("users")
-    .select("id, username, full_name")
+    .select("id, username, full_name, avatar_url")
     .in("id", friendIds);
   if (uErr) throw uErr;
 
@@ -71,7 +72,7 @@ export async function getIncomingFriendRequests(): Promise<PendingFriendRequest[
 
   const { data: usersData, error: uErr } = await supabase
     .from("users")
-    .select("id, username, full_name")
+    .select("id, username, full_name, avatar_url")
     .in("id", requesterIds);
   if (uErr) throw uErr;
   const byId = new Map(((usersData ?? []) as DbUser[]).map((u) => [u.id, u]));
@@ -80,7 +81,7 @@ export async function getIncomingFriendRequests(): Promise<PendingFriendRequest[
     .filter((r) => !!r.requester_id)
     .map((r) => ({
       id: r.id,
-      other: toUserLite(byId.get(r.requester_id!) ?? { id: r.requester_id!, username: null, full_name: null }),
+      other: toUserLite(byId.get(r.requester_id!) ?? { id: r.requester_id!, username: null, full_name: null, avatar_url: null }),
       createdAt: r.created_at,
     }));
 }
@@ -110,7 +111,7 @@ export async function getSentFriendRequests(): Promise<PendingFriendRequest[]> {
 
   const { data: usersData, error: uErr } = await supabase
     .from("users")
-    .select("id, username, full_name")
+    .select("id, username, full_name, avatar_url")
     .in("id", ids);
   if (uErr) throw uErr;
   const byId = new Map(((usersData ?? []) as DbUser[]).map((u) => [u.id, u]));
@@ -119,7 +120,7 @@ export async function getSentFriendRequests(): Promise<PendingFriendRequest[]> {
     .filter((r) => !!r.addressee_id)
     .map((r) => ({
       id: r.id,
-      other: toUserLite(byId.get(r.addressee_id!) ?? { id: r.addressee_id!, username: null, full_name: null }),
+      other: toUserLite(byId.get(r.addressee_id!) ?? { id: r.addressee_id!, username: null, full_name: null, avatar_url: null }),
       createdAt: r.created_at,
     }));
 }
@@ -134,5 +135,6 @@ function toUserLite(u: DbUser): UserLite {
     last_name_initial: last && last.length ? last : null,
     username: u.username,
     avatar_color: pickAvatarColor(u.id),
+    avatar_url: u.avatar_url ?? null,
   };
 }

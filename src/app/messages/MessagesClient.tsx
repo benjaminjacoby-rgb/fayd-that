@@ -170,6 +170,7 @@ function NewMessagePicker({
                       first={f.first_name}
                       lastInitial={f.last_name_initial}
                       color={f.avatar_color}
+                      imageUrl={f.avatar_url}
                       size={36}
                     />
                     <div className="flex-1 min-w-0">
@@ -252,7 +253,7 @@ function ConversationRow({
 function ConvoAvatar({ row }: { row: ConversationView }) {
   if (row.kind === "dm" && row.other_user) {
     const o = row.other_user;
-    return <Avatar first={o.first_name} lastInitial={o.last_name_initial} color={o.avatar_color} size={44} />;
+    return <Avatar first={o.first_name} lastInitial={o.last_name_initial} color={o.avatar_color} imageUrl={o.avatar_url} size={44} />;
   }
   // group: 2x2 grid look
   const initials = (row.title || "G")

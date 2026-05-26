@@ -15,6 +15,7 @@ interface DbCommentRow {
     id: string;
     username: string | null;
     full_name: string | null;
+    avatar_url: string | null;
   } | null;
 }
 
@@ -30,6 +31,7 @@ function toUserLite(row: DbCommentRow["user"], fallbackId: string): UserLite {
     last_name_initial: last && last.length ? last : null,
     username: row?.username ?? null,
     avatar_color: pickAvatarColor(id),
+    avatar_url: row?.avatar_url ?? null,
   };
 }
 
@@ -38,7 +40,7 @@ export async function getComments(betId: string): Promise<CommentView[]> {
   const { data, error } = await supabase
     .from("comments")
     .select(
-      "id, bet_id, user_id, content, created_at, user:users!comments_user_id_fkey(id, username, full_name)",
+      "id, bet_id, user_id, content, created_at, user:users!comments_user_id_fkey(id, username, full_name, avatar_url)",
     )
     .eq("bet_id", betId)
     .order("created_at", { ascending: false })

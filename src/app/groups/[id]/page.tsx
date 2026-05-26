@@ -107,6 +107,7 @@ export default async function GroupDetailPage({ params }: { params: { id: string
           last_name_initial: members.find((m) => m.id === authUser?.id)?.last_name_initial ?? null,
           username: members.find((m) => m.id === authUser?.id)?.username ?? null,
           avatar_color: pickAvatarColor(authUser?.id ?? ""),
+          avatar_url: members.find((m) => m.id === authUser?.id)?.avatar_url ?? null,
         }}
       />
     </AppShell>
@@ -130,7 +131,7 @@ async function loadGroupMembers(groupId: string): Promise<UserLite[]> {
 
   const { data: users, error: uErr } = await supabase
     .from("users")
-    .select("id, username, full_name")
+    .select("id, username, full_name, avatar_url")
     .in("id", userIds);
   if (uErr || !users) return [];
 
@@ -142,6 +143,7 @@ async function loadGroupMembers(groupId: string): Promise<UserLite[]> {
       last_name_initial: last,
       username: u.username ?? null,
       avatar_color: pickAvatarColor(u.id),
+      avatar_url: (u as { avatar_url?: string | null }).avatar_url ?? null,
     };
   });
 }
@@ -162,12 +164,12 @@ async function loadPendingMembers(groupId: string): Promise<MockPendingJoin[]> {
 
   const { data: users, error: uErr } = await supabase
     .from("users")
-    .select("id, username, full_name")
+    .select("id, username, full_name, avatar_url")
     .in("id", userIds);
   if (uErr || !users) return [];
 
   const usersById = new Map(
-    (users as Array<{ id: string; username: string | null; full_name: string | null }>).map((u) => [u.id, u]),
+    (users as Array<{ id: string; username: string | null; full_name: string | null; avatar_url: string | null }>).map((u) => [u.id, u]),
   );
 
   return (rows as Array<{ id: string; user_id: string | null; joined_at: string }>)
@@ -183,6 +185,7 @@ async function loadPendingMembers(groupId: string): Promise<MockPendingJoin[]> {
           last_name_initial: last,
           username: u.username ?? null,
           avatar_color: pickAvatarColor(r.user_id!),
+          avatar_url: u.avatar_url ?? null,
         },
         createdAt: r.joined_at,
       };

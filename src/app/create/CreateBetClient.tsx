@@ -352,7 +352,7 @@ export function CreateBetClient({
                       active ? "bg-yes/15 border-yes text-yes" : "bg-bg3 border-transparent text-text2"
                     }`}
                   >
-                    <Avatar first={f.first_name} lastInitial={f.last_name_initial} color={f.avatar_color} size={20} />
+                    <Avatar first={f.first_name} lastInitial={f.last_name_initial} color={f.avatar_color} imageUrl={f.avatar_url} size={20} />
                     <span className="text-xs">{fullName(f)}</span>
                   </button>
                 );

@@ -111,11 +111,12 @@ export function ChatClient({
             last_name_initial: null,
             username: null,
             avatar_color: "blue",
+            avatar_url: null,
           };
           if (row.sender_id) {
             const { data: u } = await supabase
               .from("users")
-              .select("id, username, full_name")
+              .select("id, username, full_name, avatar_url")
               .eq("id", row.sender_id)
               .maybeSingle();
             if (u) {
@@ -129,6 +130,7 @@ export function ChatClient({
                 last_name_initial: last && last.length ? last : null,
                 username: u.username,
                 avatar_color: senderLite.avatar_color,
+                avatar_url: u.avatar_url ?? null,
               };
             }
           }
@@ -261,6 +263,7 @@ export function ChatClient({
                     first={m.sender.first_name}
                     lastInitial={m.sender.last_name_initial}
                     color={m.sender.avatar_color}
+                    imageUrl={m.sender.avatar_url}
                     size={18}
                   />
                   {fullName(m.sender)}

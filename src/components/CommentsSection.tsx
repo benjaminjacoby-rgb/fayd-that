@@ -84,6 +84,7 @@ export function CommentsSection({ betId, currentUser, initial }: Props) {
                 first={c.user.first_name}
                 lastInitial={c.user.last_name_initial}
                 color={c.user.avatar_color}
+                imageUrl={c.user.avatar_url}
                 size={28}
               />
               <div className="flex-1 min-w-0">
@@ -117,6 +118,7 @@ export function CommentsSection({ betId, currentUser, initial }: Props) {
           first={currentUser.first_name}
           lastInitial={currentUser.last_name_initial}
           color={currentUser.avatar_color}
+          imageUrl={currentUser.avatar_url}
           size={28}
         />
         <input

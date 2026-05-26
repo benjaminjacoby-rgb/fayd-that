@@ -11,7 +11,7 @@ import { Toast } from "@/components/Toast";
 import { fullName } from "@/lib/format";
 import { makeHandlers } from "@/app/HomeClient";
 import { USE_MOCK_DATA } from "@/lib/config";
-import { addGroupMember, removeGroupMember, approveJoinRequest, rejectJoinRequest } from "@/lib/data/groupsClient";
+import { addGroupMember, removeGroupMember, approveJoinRequest, rejectJoinRequest, transferGroupAdmin } from "@/lib/data/groupsClient";
 import type { MockPendingJoin } from "@/lib/mock";
 import type { BetView, GroupView, UserLite } from "@/types/db";
 
@@ -145,9 +145,18 @@ export function GroupClient({
       setBusyMemberId(null);
     }
   }
-  function transferAdmin(user: UserLite) {
+  async function transferAdmin(user: UserLite) {
+    const prevAdminId = adminId;
     setAdminId(user.id);
     setToast(`Admin transferred to ${user.first_name}`);
+    if (USE_MOCK_DATA) return;
+    try {
+      await transferGroupAdmin(group.id, user.id);
+      router.refresh();
+    } catch (e) {
+      setAdminId(prevAdminId);
+      setToast(e instanceof Error ? `Couldn't transfer · ${e.message}` : "Couldn't transfer admin");
+    }
   }
 
   return (
@@ -250,6 +259,7 @@ export function GroupClient({
                   first={m.first_name}
                   lastInitial={m.last_name_initial}
                   color={m.avatar_color}
+                  imageUrl={m.avatar_url}
                   size={40}
                 />
                 <div className="flex-1 min-w-0">
@@ -301,6 +311,7 @@ export function GroupClient({
                   first={p.user.first_name}
                   lastInitial={p.user.last_name_initial}
                   color={p.user.avatar_color}
+                  imageUrl={p.user.avatar_url}
                   size={40}
                 />
                 <div className="flex-1 min-w-0">

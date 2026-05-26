@@ -55,7 +55,7 @@ export async function createGroup(input: CreateGroupInput): Promise<GroupView> {
   // Fetch the admin's profile so the returned GroupView has a real `admin` UserLite.
   const { data: meProfile } = await supabase
     .from("users")
-    .select("id, username, full_name")
+    .select("id, username, full_name, avatar_url")
     .eq("id", authUser.id)
     .maybeSingle();
 
@@ -162,6 +162,20 @@ export async function approveJoinRequest(groupId: string, userId: string): Promi
 }
 
 /**
+ * Transfer admin to another member. RLS requires the caller to be the
+ * current admin. Schema only allows one admin per group, so this is a
+ * single column update.
+ */
+export async function transferGroupAdmin(groupId: string, newAdminId: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("groups")
+    .update({ admin_id: newAdminId })
+    .eq("id", groupId);
+  if (error) throw error;
+}
+
+/**
  * Reject (delete) a pending join request. RLS requires the caller to be the
  * group's admin or the requesting user themselves.
  */
@@ -183,7 +197,7 @@ function randomCode(): string {
 
 function toUserLite(
   id: string,
-  u: { id: string; username: string | null; full_name: string | null } | null,
+  u: { id: string; username: string | null; full_name: string | null; avatar_url: string | null } | null,
 ): UserLite {
   const full = u?.full_name ?? null;
   const parts = full ? full.trim().split(/\s+/) : [];
@@ -196,5 +210,6 @@ function toUserLite(
     last_name_initial: last && last.length ? last : null,
     username: u?.username ?? null,
     avatar_color: pickAvatarColor(id),
+    avatar_url: u?.avatar_url ?? null,
   };
 }
