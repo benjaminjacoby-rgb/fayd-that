@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Avatar } from "@/components/Avatar";
@@ -10,8 +10,6 @@ import { isConversationRead, useSessionStore } from "@/lib/sessionState";
 import { USE_MOCK_DATA } from "@/lib/config";
 import { getOrCreateConversationWithFriends } from "@/lib/data/messagesClient";
 import type { ChatMessageView, ConversationView, UserLite } from "@/types/db";
-
-type Tab = "dm" | "group";
 
 export function MessagesClient({
   dms: dmsProp,
@@ -25,7 +23,6 @@ export function MessagesClient({
   friends: UserLite[];
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState<Tab>("dm");
   useSessionStore(); // re-render when read state changes
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -33,16 +30,24 @@ export function MessagesClient({
   const [pickerOpen, setPickerOpen] = useState(false);
 
   // Override unread_count to 0 for any conversation the user opened this session.
-  const applyRead = (xs: ConversationView[]): ConversationView[] =>
-    mounted
-      ? xs.map((c) => (isConversationRead(c.id) ? { ...c, unread_count: 0 } : c))
-      : xs;
-  const dms = applyRead(dmsProp);
-  const groups = applyRead(groupsProp);
+  const applyRead = useCallback(
+    (xs: ConversationView[]): ConversationView[] =>
+      mounted
+        ? xs.map((c) => (isConversationRead(c.id) ? { ...c, unread_count: 0 } : c))
+        : xs,
+    [mounted],
+  );
 
-  const rows = tab === "dm" ? dms : groups;
-  const totalDm = dms.reduce((s, c) => s + c.unread_count, 0);
-  const totalGroup = groups.reduce((s, c) => s + c.unread_count, 0);
+  // Merge DMs and group chats into one list sorted by most recent message.
+  const all = useMemo(() => {
+    const merged = [...applyRead(dmsProp), ...applyRead(groupsProp)];
+    merged.sort((a, b) => {
+      const ta = a.last_message?.created_at ?? a.id;
+      const tb = b.last_message?.created_at ?? b.id;
+      return tb.localeCompare(ta);
+    });
+    return merged;
+  }, [dmsProp, groupsProp, applyRead]);
 
   return (
     <div className="px-4 pt-4 pb-6">
@@ -56,16 +61,11 @@ export function MessagesClient({
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-1 bg-bg2 rounded-pill p-1 mb-3">
-        <TabButton active={tab === "dm"}    badge={totalDm}    label="DMs"    onClick={() => setTab("dm")} />
-        <TabButton active={tab === "group"} badge={totalGroup} label="Groups" onClick={() => setTab("group")} />
-      </div>
-
-      {rows.length === 0 ? (
-        <Empty label={tab === "dm" ? "No DMs yet." : "No group chats yet."} />
+      {all.length === 0 ? (
+        <Empty label="No messages yet." />
       ) : (
         <ul className="flex flex-col divide-y divide-bg3">
-          {rows.map((c) => (
+          {all.map((c) => (
             <li key={c.id}>
               <ConversationRow row={c} currentUserId={currentUserId} />
             </li>
@@ -79,6 +79,7 @@ export function MessagesClient({
           onClose={() => setPickerOpen(false)}
           onCreated={(conversationId) => {
             setPickerOpen(false);
+            router.refresh();
             router.push(`/messages/${conversationId}`);
           }}
         />
@@ -204,33 +205,6 @@ function NewMessagePicker({
   );
 }
 
-function TabButton({
-  active,
-  badge,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  badge: number;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`rounded-pill text-sm font-medium py-2 transition ${
-        active ? "bg-yes text-bg" : "text-text2"
-      }`}
-    >
-      {label}
-      {!active && badge > 0 ? (
-        <span className="ml-1.5 text-[10px] bg-no text-bg rounded-pill px-1.5 py-px font-mono">
-          {badge}
-        </span>
-      ) : null}
-    </button>
-  );
-}
 
 function ConversationRow({
   row,

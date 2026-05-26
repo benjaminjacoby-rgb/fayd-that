@@ -4,7 +4,6 @@ import { useRef, useState } from "react";
 import { Avatar } from "@/components/Avatar";
 import { Button } from "@/components/ui/Button";
 import {
-  isUsernameAvailable,
   updateProfile,
   uploadAvatar,
 } from "@/lib/data/profileClient";
@@ -21,7 +20,6 @@ const MAX_AVATAR_BYTES = 5 * 1024 * 1024; // 5 MB
 
 export function EditProfileSheet({ me, onClose, onSaved }: Props) {
   const [displayName, setDisplayName] = useState(fullName(me));
-  const [username, setUsername] = useState(me.username ?? "");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(me.avatar_url ?? null);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -55,36 +53,18 @@ export function EditProfileSheet({ me, onClose, onSaved }: Props) {
   async function save() {
     setError(null);
     const trimmedName = displayName.trim();
-    const trimmedUsername = username.trim();
     if (!trimmedName) {
       setError("Display name can't be empty");
       return;
     }
-    if (!trimmedUsername) {
-      setError("Username can't be empty");
-      return;
-    }
-    if (!/^[a-zA-Z0-9_]+$/.test(trimmedUsername)) {
-      setError("Username can only contain letters, numbers, and underscores");
-      return;
-    }
     setSaving(true);
     try {
-      // Skip the availability check if the username didn't change.
-      if (trimmedUsername.toLowerCase() !== (me.username ?? "").toLowerCase()) {
-        const ok = await isUsernameAvailable(trimmedUsername, me.id);
-        if (!ok) {
-          setError("That username is taken");
-          setSaving(false);
-          return;
-        }
-      }
       await updateProfile({
         fullName: trimmedName,
-        username: trimmedUsername,
+        username: me.username ?? "",
         avatarUrl,
       });
-      onSaved({ fullName: trimmedName, username: trimmedUsername, avatarUrl });
+      onSaved({ fullName: trimmedName, username: me.username ?? "", avatarUrl });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't save profile");
     } finally {
@@ -150,21 +130,6 @@ export function EditProfileSheet({ me, onClose, onSaved }: Props) {
           placeholder="Sarah Kim"
           className="w-full bg-bg3 rounded-input px-3 py-2.5 mb-4 outline-none focus:ring-2 focus:ring-yes/40"
         />
-
-        {/* Username */}
-        <label className="text-xs uppercase tracking-wide text-text3 font-medium block mb-1.5">
-          Username
-        </label>
-        <div className="flex items-stretch bg-bg3 rounded-input mb-4 focus-within:ring-2 focus-within:ring-yes/40">
-          <span className="px-3 inline-flex items-center text-text3">@</span>
-          <input
-            value={username}
-            onChange={(e) => setUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ""))}
-            maxLength={30}
-            placeholder="sarah_k"
-            className="flex-1 bg-transparent py-2.5 pr-3 outline-none"
-          />
-        </div>
 
         {error ? <p className="text-no text-xs mb-3">{error}</p> : null}
 

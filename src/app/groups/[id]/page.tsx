@@ -4,6 +4,7 @@ import { GroupClient } from "./GroupClient";
 import { USE_MOCK_DATA } from "@/lib/config";
 import {
   MOCK_CURRENT_USER,
+  MOCK_FRIENDS,
   MOCK_GROUP_MEMBERS,
   MOCK_GROUP_PENDING,
   mockBetsForGroup,
@@ -12,9 +13,11 @@ import {
 } from "@/lib/mock";
 import { getGroupsForCurrentUser } from "@/lib/data/groups";
 import { getFriendsForCurrentUser } from "@/lib/data/profile";
+import { getFeedBets } from "@/lib/data/bets";
 import { createClient } from "@/lib/supabase/server";
 import { pickAvatarColor } from "@/lib/avatar";
 import type { GroupView, UserLite } from "@/types/db";
+import type { MockPendingJoin } from "@/lib/mock";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +30,16 @@ export default async function GroupDetailPage({ params }: { params: { id: string
     const members = MOCK_GROUP_MEMBERS[group.id] ?? [];
     const pending = MOCK_GROUP_PENDING[group.id] ?? [];
     const bets = mockBetsForGroup(group.id);
+    const memberIds = new Set(members.map((m) => m.id));
+    const mockAddableFriends: UserLite[] = MOCK_FRIENDS
+      .filter((f) => !memberIds.has(f.id))
+      .map((f) => ({
+        id: f.id,
+        first_name: f.first_name,
+        last_name_initial: f.last_name_initial,
+        username: f.username,
+        avatar_color: f.avatar_color,
+      }));
 
     return (
       <AppShell title={view.name}>
@@ -35,7 +48,7 @@ export default async function GroupDetailPage({ params }: { params: { id: string
           initialMembers={members}
           initialPending={pending}
           bets={bets}
-          addableFriends={[]}
+          addableFriends={mockAddableFriends}
           currentUser={{
             id: MOCK_CURRENT_USER.id,
             first_name: MOCK_CURRENT_USER.first_name,
@@ -58,10 +71,15 @@ export default async function GroupDetailPage({ params }: { params: { id: string
     data: { user: authUser },
   } = await supabase.auth.getUser();
 
-  const [members, friendRows] = await Promise.all([
+  const [members, friendRows, allBets, pendingMembers] = await Promise.all([
     loadGroupMembers(params.id),
     getFriendsForCurrentUser(),
+    getFeedBets(),
+    view.is_admin ? loadPendingMembers(params.id) : Promise.resolve<MockPendingJoin[]>([]),
   ]);
+
+  const groupBets = allBets.filter((b) => b.group_id === params.id);
+
   // Friends the admin can add — anyone not already in the group.
   const memberIds = new Set(members.map((m) => m.id));
   const addableFriends: UserLite[] = friendRows
@@ -80,8 +98,8 @@ export default async function GroupDetailPage({ params }: { params: { id: string
       <GroupClient
         group={view}
         initialMembers={members}
-        initialPending={[]}
-        bets={[]}
+        initialPending={pendingMembers}
+        bets={groupBets}
         addableFriends={addableFriends}
         currentUser={{
           id: authUser?.id ?? "",
@@ -99,11 +117,15 @@ async function loadGroupMembers(groupId: string): Promise<UserLite[]> {
   const supabase = createClient();
   const { data: rows, error } = await supabase
     .from("group_members")
-    .select("user_id")
+    .select("user_id, status")
     .eq("group_id", groupId);
   if (error || !rows?.length) return [];
 
-  const userIds = rows.map((r) => r.user_id).filter((id): id is string => !!id);
+  // Include rows where status is 'active' or the column doesn't exist yet
+  // (rows without a status field are treated as active).
+  const activeRows = (rows as Array<{ user_id: string | null; status?: string | null }>)
+    .filter((r) => !r.status || r.status === "active");
+  const userIds = activeRows.map((r) => r.user_id).filter((id): id is string => !!id);
   if (!userIds.length) return [];
 
   const { data: users, error: uErr } = await supabase
@@ -122,6 +144,49 @@ async function loadGroupMembers(groupId: string): Promise<UserLite[]> {
       avatar_color: pickAvatarColor(u.id),
     };
   });
+}
+
+async function loadPendingMembers(groupId: string): Promise<MockPendingJoin[]> {
+  const supabase = createClient();
+  const { data: rows, error } = await supabase
+    .from("group_members")
+    .select("id, user_id, joined_at")
+    .eq("group_id", groupId)
+    .eq("status", "pending");
+  if (error || !rows?.length) return [];
+
+  const userIds = (rows as Array<{ id: string; user_id: string | null; joined_at: string }>)
+    .map((r) => r.user_id)
+    .filter((id): id is string => !!id);
+  if (!userIds.length) return [];
+
+  const { data: users, error: uErr } = await supabase
+    .from("users")
+    .select("id, username, full_name")
+    .in("id", userIds);
+  if (uErr || !users) return [];
+
+  const usersById = new Map(
+    (users as Array<{ id: string; username: string | null; full_name: string | null }>).map((u) => [u.id, u]),
+  );
+
+  return (rows as Array<{ id: string; user_id: string | null; joined_at: string }>)
+    .filter((r) => r.user_id && usersById.has(r.user_id))
+    .map((r) => {
+      const u = usersById.get(r.user_id!)!;
+      const { first, last } = splitFullName(u.full_name ?? null);
+      return {
+        id: r.id,
+        user: {
+          id: r.user_id!,
+          first_name: first,
+          last_name_initial: last,
+          username: u.username ?? null,
+          avatar_color: pickAvatarColor(r.user_id!),
+        },
+        createdAt: r.joined_at,
+      };
+    });
 }
 
 function splitFullName(full: string | null): { first: string | null; last: string | null } {

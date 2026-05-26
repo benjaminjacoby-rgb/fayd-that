@@ -9,7 +9,7 @@ import { Toast } from "@/components/Toast";
 import { USE_MOCK_DATA } from "@/lib/config";
 import { MOCK_CURRENT_USER } from "@/lib/mock";
 import { fullName } from "@/lib/format";
-import { createGroup as createGroupRemote } from "@/lib/data/groupsClient";
+import { createGroup as createGroupRemote, requestJoinGroup as requestJoinGroupRemote } from "@/lib/data/groupsClient";
 import type { GroupView } from "@/types/db";
 
 type Sheet = null | "create" | "join";
@@ -62,10 +62,23 @@ export function GroupsClient({ initialGroups }: { initialGroups: GroupView[] }) 
     }
   }
 
-  function joinByCode(code: string) {
-    // Mock: pretend the code matches some real group; either request was sent or invalid.
-    setSheet(null);
-    setToast(`Request sent · code ${code.toUpperCase()}`);
+  async function joinByCode(code: string) {
+    if (USE_MOCK_DATA) {
+      setSheet(null);
+      setToast(`Request sent · code ${code.toUpperCase()}`);
+      return;
+    }
+    setBusy(true);
+    try {
+      await requestJoinGroupRemote(code);
+      setSheet(null);
+      setToast("Join request sent — waiting for admin approval");
+      router.refresh();
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Couldn't send join request");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (

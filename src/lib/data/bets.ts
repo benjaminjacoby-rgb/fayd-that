@@ -179,7 +179,7 @@ function buildBetView(
   fillsByContract: Map<string, DbFill[]>,
   usersById: Map<string, DbUser>,
   groupsById: Map<string, DbGroup>,
-  reactions: BetView["post_meta"] extends infer T ? (T extends { reactions: infer R } ? R : never) : never,
+  reactions: Reaction[],
 ): BetView {
   const posterUser = usersById.get(bet.poster_id ?? "");
   const creator = toUserLite(bet.poster_id, posterUser);
@@ -270,7 +270,7 @@ function buildBetView(
     creator_id: bet.poster_id ?? "",
     question: bet.question,
     category: "other",
-    yes_probability: posterSide === "yes" ? 50 : 50, // overall "asking" prob — unknown in this schema; line bar derives from contracts.
+    yes_probability: originalContracts[0] != null ? Math.round(originalContracts[0].odds) : 50,
     stake_cents: toCents(bet.stake_amount),
     expiry_at: bet.end_date ?? bet.created_at,
     resolution_notes: null,
@@ -336,6 +336,7 @@ function toUserLite(id: string | null | undefined, u: DbUser | undefined): UserL
     last_name_initial: last,
     username: u?.username ?? null,
     avatar_color: pickAvatarColor(safeId),
+    avatar_url: u?.avatar_url ?? null,
   };
 }
 

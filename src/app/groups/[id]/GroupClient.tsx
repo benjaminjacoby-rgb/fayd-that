@@ -11,7 +11,7 @@ import { Toast } from "@/components/Toast";
 import { fullName } from "@/lib/format";
 import { makeHandlers } from "@/app/HomeClient";
 import { USE_MOCK_DATA } from "@/lib/config";
-import { addGroupMember, removeGroupMember } from "@/lib/data/groupsClient";
+import { addGroupMember, removeGroupMember, approveJoinRequest, rejectJoinRequest } from "@/lib/data/groupsClient";
 import type { MockPendingJoin } from "@/lib/mock";
 import type { BetView, GroupView, UserLite } from "@/types/db";
 
@@ -67,13 +67,34 @@ export function GroupClient({
   );
 
   // ── Admin actions ─────────────────────
-  function approve(pj: MockPendingJoin) {
+  async function approve(pj: MockPendingJoin) {
     setPending((xs) => xs.filter((x) => x.id !== pj.id));
     setMembers((xs) => [...xs, pj.user]);
+    if (!USE_MOCK_DATA) {
+      try {
+        await approveJoinRequest(group.id, pj.user.id);
+        router.refresh();
+      } catch (e) {
+        setPending((xs) => [...xs, pj]);
+        setMembers((xs) => xs.filter((m) => m.id !== pj.user.id));
+        setToast(e instanceof Error ? `Couldn't approve · ${e.message}` : "Couldn't approve request");
+        return;
+      }
+    }
     setToast(`${pj.user.first_name} added to ${group.name}`);
   }
-  function reject(pj: MockPendingJoin) {
+  async function reject(pj: MockPendingJoin) {
     setPending((xs) => xs.filter((x) => x.id !== pj.id));
+    if (!USE_MOCK_DATA) {
+      try {
+        await rejectJoinRequest(group.id, pj.user.id);
+        router.refresh();
+      } catch (e) {
+        setPending((xs) => [...xs, pj]);
+        setToast(e instanceof Error ? `Couldn't reject · ${e.message}` : "Couldn't reject request");
+        return;
+      }
+    }
     setToast(`Request from ${pj.user.first_name} declined`);
   }
   async function removeMember(user: UserLite) {

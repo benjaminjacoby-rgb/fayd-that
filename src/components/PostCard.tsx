@@ -185,6 +185,7 @@ export function PostCard({
           first={bet.creator.first_name}
           lastInitial={bet.creator.last_name_initial}
           color={bet.creator.avatar_color}
+          imageUrl={bet.creator.avatar_url}
           size={40}
         />
         <div className="flex-1 min-w-0">

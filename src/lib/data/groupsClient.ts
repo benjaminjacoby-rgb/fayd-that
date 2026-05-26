@@ -102,6 +102,78 @@ export async function removeGroupMember(groupId: string, userId: string): Promis
   if (error) throw error;
 }
 
+/**
+ * Submit a join request for the group with the given invite code.
+ * Inserts a group_members row with status='pending'; the group admin
+ * can then approve or reject it from the Pending tab.
+ */
+export async function requestJoinGroup(inviteCode: string): Promise<void> {
+  const supabase = createClient();
+  const {
+    data: { user: authUser },
+    error: authErr,
+  } = await supabase.auth.getUser();
+  if (authErr) throw authErr;
+  if (!authUser) throw new Error("Not authenticated");
+
+  const { data: group, error: gErr } = await supabase
+    .from("groups")
+    .select("id")
+    .eq("join_code", inviteCode.toUpperCase())
+    .maybeSingle();
+  if (gErr) throw gErr;
+  if (!group) throw new Error("Invalid invite code");
+
+  // Prevent duplicate requests.
+  const { data: existing } = await supabase
+    .from("group_members")
+    .select("id, status")
+    .eq("group_id", (group as { id: string }).id)
+    .eq("user_id", authUser.id)
+    .maybeSingle();
+  if (existing) {
+    const status = (existing as { id: string; status: string }).status;
+    if (status === "active") throw new Error("You're already a member of this group");
+    if (status === "pending") throw new Error("You already have a pending request for this group");
+  }
+
+  const { error: iErr } = await supabase
+    .from("group_members")
+    .insert({ group_id: (group as { id: string }).id, user_id: authUser.id, role: "member", status: "pending" });
+  if (iErr) throw iErr;
+}
+
+/**
+ * Approve a pending join request. Deletes the pending row and inserts an
+ * active one so the member gains full group access. RLS requires the caller
+ * to be the group's admin.
+ */
+export async function approveJoinRequest(groupId: string, userId: string): Promise<void> {
+  const supabase = createClient();
+  const { error: delErr } = await supabase
+    .from("group_members")
+    .delete()
+    .match({ group_id: groupId, user_id: userId, status: "pending" });
+  if (delErr) throw delErr;
+  const { error: insErr } = await supabase
+    .from("group_members")
+    .insert({ group_id: groupId, user_id: userId, role: "member", status: "active" });
+  if (insErr) throw insErr;
+}
+
+/**
+ * Reject (delete) a pending join request. RLS requires the caller to be the
+ * group's admin or the requesting user themselves.
+ */
+export async function rejectJoinRequest(groupId: string, userId: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("group_members")
+    .delete()
+    .match({ group_id: groupId, user_id: userId, status: "pending" });
+  if (error) throw error;
+}
+
 function randomCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let out = "";
