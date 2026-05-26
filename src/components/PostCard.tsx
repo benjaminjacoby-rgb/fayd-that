@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Avatar } from "./Avatar";
+import { CommentsSection } from "./CommentsSection";
 import { formatCents, formatTimeRemaining, fullName } from "@/lib/format";
 import type { BetSide, BetView, MediatorState, Reaction, UserLite } from "@/types/db";
 
@@ -458,36 +459,13 @@ export function PostCard({
         />
       ) : null}
 
-      {/* ── Chat / comments footer ─────────────────────────────────────── */}
-      <div className="px-4 py-4 border-t border-[#222] flex items-start gap-3">
-        <button
-          onClick={() => onComment(bet)}
-          aria-label="Open chat"
-          className="shrink-0 w-9 h-9 rounded-pill bg-bg3 inline-flex items-center justify-center text-[#555] hover:text-[#aaa] active:scale-[0.95] transition-all duration-150 ease-out"
-        >
-          <ChatIcon />
-        </button>
-        <div className="flex-1 min-w-0">
-          {meta.comments.length === 0 ? (
-            <button onClick={() => onComment(bet)} className="text-[#777] text-xs hover:text-text2 text-left">
-              Be the first to comment
-            </button>
-          ) : (
-            <ul className="flex flex-col gap-1.5">
-              {meta.comments.slice(0, 2).map((c) => (
-                <li key={c.id} className="text-sm flex gap-1.5">
-                  <span className="font-semibold text-text2 shrink-0">{fullName(c.user)}</span>
-                  <span className="text-[#bbb] break-words">{c.text}</span>
-                </li>
-              ))}
-              {meta.comments.length > 2 ? (
-                <button onClick={() => onComment(bet)} className="text-[#777] text-xs hover:text-text2 text-left">
-                  View all {meta.comments.length} comments
-                </button>
-              ) : null}
-            </ul>
-          )}
-        </div>
+      {/* ── Comments footer ─────────────────────────────────────────────── */}
+      <div className="px-4 py-4 border-t border-[#222]">
+        <CommentsSection
+          betId={bet.id}
+          currentUser={currentUser}
+          initial={meta.comments}
+        />
       </div>
     </article>
   );

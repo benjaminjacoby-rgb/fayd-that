@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Avatar } from "@/components/Avatar";
 import { CategoryPill } from "@/components/CategoryPill";
+import { ResolutionSection } from "@/components/ResolutionSection";
 import { formatCents, formatTimeRemaining, fullName } from "@/lib/format";
 import {
   getMyActiveContracts,
@@ -16,9 +18,11 @@ import type { UserLite } from "@/types/db";
 
 export function PendingClient({ currentUser }: { currentUser: UserLite }) {
   useSessionStore(); // re-render on session-store changes
+  const router = useRouter();
   // Defer reading store state until after mount so SSR + hydration match.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+  const onSettled = () => router.refresh();
 
   // Only show items created this session — the pre-seeded mock fixtures are
   // intentionally hidden so the tab reflects real activity (or an empty state).
@@ -50,7 +54,7 @@ export function PendingClient({ currentUser }: { currentUser: UserLite }) {
           <ul className="flex flex-col gap-3 mt-3">
             {actives.map((a) => (
               <li key={a.id}>
-                <ActiveRow row={a} currentUserId={currentUser.id} />
+                <ActiveRow row={a} currentUserId={currentUser.id} onSettled={onSettled} />
               </li>
             ))}
           </ul>
@@ -67,7 +71,7 @@ export function PendingClient({ currentUser }: { currentUser: UserLite }) {
           <ul className="flex flex-col gap-3 mt-3">
             {posts.map((p) => (
               <li key={p.bet.id}>
-                <PostRow row={p} />
+                <PostRow row={p} currentUserId={currentUser.id} onSettled={onSettled} />
               </li>
             ))}
           </ul>
@@ -91,9 +95,11 @@ function SectionHeader({ title, count }: { title: string; count: number }) {
 function ActiveRow({
   row,
   currentUserId,
+  onSettled,
 }: {
   row: PendingContractView;
   currentUserId: string;
+  onSettled: () => void;
 }) {
   const { bet, side, yesPercent, stakeCents } = row;
   // Display the taker's odds — flip if user is on NO.
@@ -159,11 +165,21 @@ function ActiveRow({
           <span className={`font-mono ${sideTextClass}`}>{formatCents(winCents)}</span>
         </Stat>
       </div>
+
+      <ResolutionSection bet={bet} currentUserId={currentUserId} onSettled={onSettled} />
     </article>
   );
 }
 
-function PostRow({ row }: { row: MyPostView }) {
+function PostRow({
+  row,
+  currentUserId,
+  onSettled,
+}: {
+  row: MyPostView;
+  currentUserId: string;
+  onSettled: () => void;
+}) {
   const { bet } = row;
   const filled = bet.post_meta?.original_filled_cents ?? 0;
   const remaining = Math.max(0, bet.stake_cents - filled);
@@ -201,6 +217,8 @@ function PostRow({ row }: { row: MyPostView }) {
       <div className="mt-2 h-1 w-full rounded-pill bg-bg3 overflow-hidden">
         <div className="h-full bg-yes/60" style={{ width: `${filledPct}%` }} />
       </div>
+
+      <ResolutionSection bet={bet} currentUserId={currentUserId} onSettled={onSettled} />
     </article>
   );
 }

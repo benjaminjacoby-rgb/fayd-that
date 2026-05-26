@@ -60,6 +60,31 @@ export async function createBet(input: CreateBetInput): Promise<string> {
     .select("id")
     .single();
   if (error) throw error;
+  // Create an originating contract for the poster reflecting their chosen
+  // odds and stake so the feed's weighted-line math can pick it up. We also
+  // insert a fill for that contract representing the poster's stake.
+  const betId = (data as any).id as string;
+  const { data: contractData, error: contractErr } = await supabase
+    .from("contracts")
+    .insert({
+      bet_id: betId,
+      creator_id: authUser.id,
+      position: input.poster_side.toUpperCase(),
+      odds: input.yes_probability,
+      stake_amount: input.stake_cents / 100,
+      amount_remaining: 0,
+      is_filled: true,
+    })
+    .select("id")
+    .single();
+  if (contractErr) throw contractErr;
+  const contractId = (contractData as any).id as string;
+  const { error: fillErr } = await supabase.from("fills").insert({
+    contract_id: contractId,
+    filler_id: authUser.id,
+    amount: input.stake_cents / 100,
+  });
+  if (fillErr) throw fillErr;
   // Lock the stake in the user's wallet as part of posting.
   await deductWalletCents(input.stake_cents);
   return data.id as string;
