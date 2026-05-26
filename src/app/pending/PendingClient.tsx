@@ -22,11 +22,16 @@ export function PendingClient({ currentUser }: { currentUser: UserLite }) {
 
   // Only show items created this session — the pre-seeded mock fixtures are
   // intentionally hidden so the tab reflects real activity (or an empty state).
-  const actives: PendingContractView[] = mounted
-    ? getMyActiveContracts().filter((a) => a.source === "session")
-    : [];
   const posts: MyPostView[] = mounted
     ? getMyPosts().filter((p) => p.source === "session")
+    : [];
+  // If the user both posted and filled the same bet, dedupe — the post row
+  // already represents that bet on this screen.
+  const postedBetIds = new Set(posts.map((p) => p.bet.id));
+  const actives: PendingContractView[] = mounted
+    ? getMyActiveContracts().filter(
+        (a) => a.source === "session" && !postedBetIds.has(a.bet.id),
+      )
     : [];
 
   if (mounted && actives.length === 0 && posts.length === 0) {

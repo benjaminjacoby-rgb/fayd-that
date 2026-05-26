@@ -11,6 +11,7 @@ import { addMyActiveContract } from "@/lib/sessionState";
 import { formatCents } from "@/lib/format";
 import { USE_MOCK_DATA } from "@/lib/config";
 import { insertNotification } from "@/lib/data/notificationsClient";
+import { cancelBet as cancelBetRemote, fillBet as fillBetRemote } from "@/lib/data/betsClient";
 import type {
   BetSide,
   BetView,
@@ -81,6 +82,7 @@ export function HomeClient({
     setToast,
     openFayd: setFaydSheet,
     openStart: setStartSheet,
+    onRefresh: () => router.refresh(),
   });
 
   if (bets.length === 0) return <EmptyState />;
@@ -182,12 +184,14 @@ export function makeHandlers({
   setToast,
   openFayd,
   openStart,
+  onRefresh,
 }: {
   currentUser: UserLite;
   setBets: React.Dispatch<React.SetStateAction<BetView[]>>;
   setToast: (msg: string | null) => void;
   openFayd?: (s: FaydSheetState) => void;
   openStart?: (s: StartSheetState) => void;
+  onRefresh?: () => void;
 }): FeedHandlers {
   void openFayd;
   void openStart;
@@ -317,14 +321,21 @@ export function makeHandlers({
       });
     }
     setToast(`Filled ${formatCents(amountCents)} on ${side.toUpperCase()}`);
-    // Notify the original poster that someone faded their bet.
-    if (!USE_MOCK_DATA && bet.creator_id && bet.creator_id !== currentUser.id) {
-      insertNotification({
-        userId: bet.creator_id,
-        type: "bet_filled",
-        referenceId: bet.id,
-        referenceType: "bet",
-      }).catch(() => {});
+    if (!USE_MOCK_DATA) {
+      // Lock the filler's stake in their wallet, then refresh so the new
+      // balance reaches the top bar.
+      fillBetRemote(amountCents)
+        .then(() => onRefresh?.())
+        .catch(() => {});
+      // Notify the original poster that someone faded their bet.
+      if (bet.creator_id && bet.creator_id !== currentUser.id) {
+        insertNotification({
+          userId: bet.creator_id,
+          type: "bet_filled",
+          referenceId: bet.id,
+          referenceType: "bet",
+        }).catch(() => {});
+      }
     }
   }
 
@@ -391,17 +402,24 @@ export function makeHandlers({
   }
 
   function onCancelBet(bet: BetView) {
+    const filled = bet.post_meta?.original_filled_cents ?? 0;
+    const refundCents = Math.max(0, bet.stake_cents - filled);
     updateBet(bet.id, (b) => {
       const meta = b.post_meta!;
       // Cancellation only affects the unfilled portion of the original line.
       // Existing fills (sub_contracts + accepted contracts) are untouched.
-      const filled = meta.original_filled_cents;
-      if (filled === 0) {
+      const f = meta.original_filled_cents;
+      if (f === 0) {
         return { ...b, status: "cancelled" };
       }
-      return { ...b, stake_cents: filled };
+      return { ...b, stake_cents: f };
     });
     setToast("Unfilled stake cancelled");
+    if (!USE_MOCK_DATA) {
+      cancelBetRemote({ betId: bet.id, refundCents })
+        .then(() => onRefresh?.())
+        .catch(() => {});
+    }
   }
 
   return { onReact, onVote, onAcceptMediator, onMarkConcluded, onCancelBet, onConfirmFill, onPostSubContract };

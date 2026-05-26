@@ -191,7 +191,7 @@ export function CreateBetClient({
           : effectiveMediatorChoice === "request"
             ? "requested"
             : "none";
-      await createBet({
+      const newBetId = await createBet({
         question: question.trim(),
         category,
         yes_probability: yesProbability,
@@ -205,7 +205,47 @@ export function CreateBetClient({
         poster_side: posterSide,
         mediator_type: mediatorType,
       });
+      // Mirror the new post into the session store so the Pending page
+      // shows it immediately — server-side fetchers still drive the feed.
+      const postedBet: BetView = {
+        id: newBetId,
+        creator_id: currentUser.id,
+        question: question.trim(),
+        category,
+        yes_probability: yesProbability,
+        stake_cents: stakeCents,
+        expiry_at,
+        resolution_notes: null,
+        status: "open",
+        scope,
+        group_id: scope === "group" ? groupId : null,
+        geo_lat: null,
+        geo_lng: null,
+        geo_radius_meters: scope === "geo" ? radius : null,
+        created_at: new Date().toISOString(),
+        resolved_at: null,
+        creator: currentUser,
+        participants: [],
+        contracts: [],
+        open_negotiations: [],
+        post_meta: {
+          relationship: { kind: "self", label: "You" },
+          poster_side: posterSide,
+          original_filled_cents: 0,
+          reactions: [],
+          comments: [],
+          poll: { yes_votes: 0, no_votes: 0, my_vote: null },
+          sub_contracts: [],
+          mediator: mediatorState,
+          end_at: null,
+          concluded: false,
+          target_friend_ids:
+            scope === "friends" && targetFriendIds.length > 0 ? targetFriendIds : undefined,
+        },
+      };
+      addMyPost(postedBet);
       router.push("/");
+      router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to create bet");
     } finally {

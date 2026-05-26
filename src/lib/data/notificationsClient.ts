@@ -49,6 +49,17 @@ export async function getUnreadCount(): Promise<number> {
   return count ?? 0;
 }
 
+interface DbFriendshipWithRequester {
+  id: string;
+  requester_id: string;
+  requester: {
+    id: string;
+    username: string | null;
+    full_name: string | null;
+    avatar_url: string | null;
+  } | null;
+}
+
 export async function getNotifications(): Promise<NotificationRow[]> {
   const supabase = createClient();
   const {
@@ -62,7 +73,50 @@ export async function getNotifications(): Promise<NotificationRow[]> {
     .order("created_at", { ascending: false })
     .limit(50);
   if (error) return [];
-  return ((data ?? []) as DbNotification[]).map(toNotificationRow);
+  const rows = (data ?? []) as DbNotification[];
+
+  const friendshipIds = rows
+    .filter(
+      (r) => r.type === "friend_request" && r.reference_type === "friendship" && r.reference_id,
+    )
+    .map((r) => r.reference_id as string);
+  const actorByFriendshipId = new Map<
+    string,
+    { userId: string; name: string | null; avatarUrl: string | null }
+  >();
+  if (friendshipIds.length > 0) {
+    const { data: friendships } = await supabase
+      .from("friendships")
+      .select(
+        "id, requester_id, requester:users!friendships_requester_id_fkey(id, username, full_name, avatar_url)",
+      )
+      .in("id", friendshipIds);
+    for (const f of (friendships ?? []) as unknown as DbFriendshipWithRequester[]) {
+      actorByFriendshipId.set(f.id, {
+        userId: f.requester?.id ?? f.requester_id,
+        name: f.requester?.full_name ?? f.requester?.username ?? null,
+        avatarUrl: f.requester?.avatar_url ?? null,
+      });
+    }
+  }
+
+  return rows.map((n) => {
+    const actor = n.reference_id ? actorByFriendshipId.get(n.reference_id) : undefined;
+    return {
+      id: n.id,
+      user_id: n.user_id,
+      type: n.type,
+      payload: {
+        reference_id: n.reference_id,
+        reference_type: n.reference_type,
+        actor_user_id: actor?.userId ?? null,
+        actor_name: actor?.name ?? null,
+        actor_avatar_url: actor?.avatarUrl ?? null,
+      },
+      read: n.is_read,
+      created_at: n.created_at,
+    };
+  });
 }
 
 export async function markAllRead(): Promise<void> {

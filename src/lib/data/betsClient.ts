@@ -1,6 +1,7 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/client";
+import { creditWalletCents, deductWalletCents } from "@/lib/data/walletClient";
 import type { BetCategory, BetScope, BetSide } from "@/types/db";
 
 export interface CreateBetInput {
@@ -59,5 +60,35 @@ export async function createBet(input: CreateBetInput): Promise<string> {
     .select("id")
     .single();
   if (error) throw error;
+  // Lock the stake in the user's wallet as part of posting.
+  await deductWalletCents(input.stake_cents);
   return data.id as string;
+}
+
+/**
+ * Fill another user's bet — currently just deducts the stake from the
+ * caller's wallet. Persisting the contract / fill rows is handled by the
+ * caller (HomeClient) via session state for now.
+ */
+export async function fillBet(stakeCents: number): Promise<void> {
+  await deductWalletCents(stakeCents);
+}
+
+/**
+ * Cancel a bet the caller posted: marks the bet cancelled and refunds the
+ * unfilled portion of the original stake back to the poster's wallet.
+ */
+export async function cancelBet(params: {
+  betId: string;
+  refundCents: number;
+}): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("bets")
+    .update({ status: "concluded", is_concluded: true })
+    .eq("id", params.betId);
+  if (error) throw error;
+  if (params.refundCents > 0) {
+    await creditWalletCents(params.refundCents);
+  }
 }

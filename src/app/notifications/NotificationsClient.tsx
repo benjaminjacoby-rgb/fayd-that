@@ -64,18 +64,44 @@ export function NotificationsClient({
 
   return (
     <ul className="flex flex-col divide-y divide-bg3 px-4 pt-2 pb-6">
-      {items.map((n) => (
-        <li key={n.id} className="py-3 flex items-start gap-3">
-          <div className="w-9 h-9 rounded-pill bg-bg3 inline-flex items-center justify-center shrink-0 text-text2">
-            {iconFor(n.type)}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium truncate">{labelFor(n.type)}</div>
-            <div className="text-text3 text-[11px] mt-0.5">{ago(n.created_at)}</div>
-          </div>
-          {!n.read ? <span className="w-2 h-2 rounded-pill bg-no shrink-0 mt-2" /> : null}
-        </li>
-      ))}
+      {items.map((n) => {
+        const actorName = (n.payload as { actor_name?: string | null })?.actor_name ?? null;
+        const actorAvatar = (n.payload as { actor_avatar_url?: string | null })?.actor_avatar_url ?? null;
+        const hasActor = n.type === "friend_request" && !!actorName;
+        return (
+          <li key={n.id} className="py-3 flex items-start gap-3">
+            {hasActor && actorAvatar ? (
+              <img
+                src={actorAvatar}
+                alt=""
+                className="w-9 h-9 rounded-pill object-cover shrink-0 bg-bg3"
+              />
+            ) : hasActor ? (
+              <div className="w-9 h-9 rounded-pill bg-bg3 inline-flex items-center justify-center shrink-0 text-text2 font-semibold text-sm">
+                {(actorName ?? "?").slice(0, 1).toUpperCase()}
+              </div>
+            ) : (
+              <div className="w-9 h-9 rounded-pill bg-bg3 inline-flex items-center justify-center shrink-0 text-text2">
+                {iconFor(n.type)}
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium truncate">
+                {hasActor ? (
+                  <>
+                    <span className="font-semibold">{actorName}</span>{" "}
+                    <span className="text-text2">sent you a friend request</span>
+                  </>
+                ) : (
+                  labelFor(n.type)
+                )}
+              </div>
+              <div className="text-text3 text-[11px] mt-0.5">{ago(n.created_at)}</div>
+            </div>
+            {!n.read ? <span className="w-2 h-2 rounded-pill bg-no shrink-0 mt-2" /> : null}
+          </li>
+        );
+      })}
     </ul>
   );
 }
