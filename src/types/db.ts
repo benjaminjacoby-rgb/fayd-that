@@ -54,6 +54,8 @@ export interface BetRow {
   /** Optional poster-chosen expiration (separate from `expiry_at`). When set
    *  and in the past, the bet is treated as expired and cannot be filled. */
   expires_at?: string | null;
+  /** Populated by settle_bet — which side was declared the winner. */
+  winning_side?: "YES" | "NO" | null;
   created_at: string;
   resolved_at: string | null;
 }
@@ -190,6 +192,8 @@ export interface CommentView {
   user: UserLite;
   text: string;
   created_at: string;
+  like_count?: number;
+  liked_by_me?: boolean;
 }
 
 export interface PollView {
@@ -252,6 +256,8 @@ export interface PostMeta {
   end_at?: string | null;
   /** True once the poster or mediator has manually marked the bet concluded. */
   concluded?: boolean;
+  /** Which side won, set when status = 'settled'. */
+  winning_side?: "YES" | "NO" | null;
   /**
    * When the bet was sent to a specific subset of friends (audience_type =
    * 'specific_friends'), the ids of those targeted recipients. Empty/undefined

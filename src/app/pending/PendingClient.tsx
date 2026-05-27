@@ -304,6 +304,10 @@ function ActiveRow({
       </div>
       <p className="font-medium leading-snug mt-2">{bet.question}</p>
 
+      {resolved && bet.winning_side ? (
+        <WinnerBanner bet={bet} />
+      ) : null}
+
       <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
         <Stat label="Odds">
           <span className="font-mono text-text">{userOdds}%</span>
@@ -354,6 +358,7 @@ function PostRow({
 
   const [closing, setClosing] = useState(false);
   const [closeError, setCloseError] = useState<string | null>(null);
+  const [confirmClose, setConfirmClose] = useState(false);
 
   async function handleClose() {
     if (!onClose) return;
@@ -363,6 +368,7 @@ function PostRow({
       await onClose();
     } catch (e) {
       setCloseError(e instanceof Error ? e.message : "Couldn't close bet");
+      setConfirmClose(false);
     } finally {
       setClosing(false);
     }
@@ -390,6 +396,10 @@ function PostRow({
       </div>
       <p className="font-medium leading-snug">{bet.question}</p>
 
+      {resolved && bet.winning_side ? (
+        <WinnerBanner bet={bet} />
+      ) : null}
+
       {!resolved ? (
         <>
           <div className="mt-3 flex items-center justify-between text-xs">
@@ -411,13 +421,35 @@ function PostRow({
 
           {canClose ? (
             <div className="mt-3">
-              <button
-                disabled={closing}
-                onClick={handleClose}
-                className="w-full rounded-input border border-gold/50 text-gold font-semibold text-sm py-2.5 hover:bg-gold/10 active:scale-[0.97] transition disabled:opacity-40"
-              >
-                {closing ? "Closing…" : "Close Bet"}
-              </button>
+              {!confirmClose ? (
+                <button
+                  onClick={() => setConfirmClose(true)}
+                  className="w-full rounded-input border border-gold/50 text-gold font-semibold text-sm py-2.5 hover:bg-gold/10 active:scale-[0.97] transition"
+                >
+                  Close Bet
+                </button>
+              ) : (
+                <div className="rounded-input border border-gold/50 bg-gold/10 px-3 py-2.5">
+                  <p className="text-gold text-xs font-semibold text-center mb-2.5">
+                    Close this bet to resolution? No new fills will be accepted.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setConfirmClose(false)}
+                      className="flex-1 rounded-input border border-bg4 text-text3 font-semibold text-sm py-2 hover:bg-bg3 active:scale-[0.97] transition"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      disabled={closing}
+                      onClick={handleClose}
+                      className="flex-1 rounded-input bg-gold text-bg font-bold text-sm py-2 hover:bg-gold/80 active:scale-[0.97] transition disabled:opacity-40"
+                    >
+                      {closing ? "Closing…" : "Confirm Close"}
+                    </button>
+                  </div>
+                </div>
+              )}
               {closeError ? (
                 <p className="text-no text-xs mt-1">{closeError}</p>
               ) : null}
@@ -436,6 +468,42 @@ function Stat({ label, children }: { label: string; children: React.ReactNode })
     <div className="bg-bg3 rounded-input px-2.5 py-1.5">
       <div className="text-[10px] uppercase tracking-wide text-text3">{label}</div>
       <div className="mt-0.5">{children}</div>
+    </div>
+  );
+}
+
+/** Displays the winning side and the names of winning participants. */
+function WinnerBanner({ bet }: { bet: BetView }) {
+  const ws = bet.winning_side; // "YES" | "NO"
+  if (!ws) return null;
+
+  const isYes = ws === "YES";
+  const winnerColor = isYes ? "text-yes" : "text-no";
+  const winnerBg = isYes ? "bg-yes/10 border-yes/30" : "bg-no/10 border-no/30";
+
+  // Collect unique winner UserLite entries from all ContractView entries.
+  const contracts = bet.contracts ?? [];
+  const winnerMap = new Map<string, { first_name: string | null; last_name_initial: string | null; username: string | null }>();
+  for (const c of contracts) {
+    const u = isYes ? c.yes_user : c.no_user;
+    if (u && !winnerMap.has(u.id)) winnerMap.set(u.id, u);
+  }
+  const winners = Array.from(winnerMap.values());
+
+  const winnerNames =
+    winners.length > 0
+      ? winners.map((u) => fullName(u) ?? u.username ?? "—").join(", ")
+      : null;
+
+  return (
+    <div className={`mt-3 rounded-input border px-3 py-2.5 flex items-center gap-2 ${winnerBg}`}>
+      <span className={`text-lg leading-none`}>{isYes ? "✅" : "❌"}</span>
+      <div>
+        <span className={`text-sm font-bold ${winnerColor}`}>{ws} won</span>
+        {winnerNames ? (
+          <span className="text-text3 text-xs ml-1.5">· {winnerNames}</span>
+        ) : null}
+      </div>
     </div>
   );
 }

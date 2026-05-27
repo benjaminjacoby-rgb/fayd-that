@@ -60,6 +60,7 @@ interface DbBet {
   mediator_type: "none" | "self" | "requested";
   mediator_id: string | null;
   status: "open" | "filled" | "closed" | "concluded" | "settled";
+  winning_side: "YES" | "NO" | null;
   created_at: string;
 }
 
@@ -271,6 +272,7 @@ function buildBetView(
     mediator,
     end_at: bet.end_date,
     concluded: bet.is_concluded,
+    winning_side: bet.winning_side ?? null,
   };
 
   return {
@@ -286,6 +288,7 @@ function buildBetView(
     scope: mapScope(bet.audience_type),
     group_id: bet.group_id,
     expires_at: bet.expires_at,
+    winning_side: bet.winning_side ?? null,
     created_at: bet.created_at,
     resolved_at: null,
     creator,

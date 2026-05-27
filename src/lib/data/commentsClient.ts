@@ -37,22 +37,75 @@ function toUserLite(row: DbCommentRow["user"], fallbackId: string): UserLite {
 
 export async function getComments(betId: string): Promise<CommentView[]> {
   const supabase = createClient();
-  const { data, error } = await supabase
-    .from("comments")
-    .select(
-      "id, bet_id, user_id, content, created_at, user:users!comments_user_id_fkey(id, username, full_name, avatar_url)",
-    )
-    .eq("bet_id", betId)
-    .order("created_at", { ascending: false })
-    .limit(50);
-  if (error) throw error;
-  const rows = (data ?? []) as unknown as DbCommentRow[];
+
+  const [commentsRes, authRes] = await Promise.all([
+    supabase
+      .from("comments")
+      .select(
+        "id, bet_id, user_id, content, created_at, user:users!comments_user_id_fkey(id, username, full_name, avatar_url)",
+      )
+      .eq("bet_id", betId)
+      .order("created_at", { ascending: false })
+      .limit(50),
+    supabase.auth.getUser(),
+  ]);
+  if (commentsRes.error) throw commentsRes.error;
+  const rows = (commentsRes.data ?? []) as unknown as DbCommentRow[];
+  if (rows.length === 0) return [];
+
+  const currentUserId = authRes.data.user?.id ?? null;
+  const commentIds = rows.map((r) => r.id);
+
+  // Fetch like counts and current-user likes in one query.
+  const { data: likesData } = await supabase
+    .from("comment_likes")
+    .select("comment_id, user_id")
+    .in("comment_id", commentIds);
+  const likes = (likesData ?? []) as { comment_id: string; user_id: string }[];
+
+  const likeCountMap = new Map<string, number>();
+  const likedByMeSet = new Set<string>();
+  for (const l of likes) {
+    likeCountMap.set(l.comment_id, (likeCountMap.get(l.comment_id) ?? 0) + 1);
+    if (currentUserId && l.user_id === currentUserId) likedByMeSet.add(l.comment_id);
+  }
+
   return rows.map((r) => ({
     id: r.id,
     user: toUserLite(r.user, r.user_id),
     text: r.content,
     created_at: r.created_at,
+    like_count: likeCountMap.get(r.id) ?? 0,
+    liked_by_me: likedByMeSet.has(r.id),
   }));
+}
+
+/** Like a comment. No-op if already liked (unique constraint handles duplicate inserts). */
+export async function likeComment(commentId: string): Promise<void> {
+  const supabase = createClient();
+  const {
+    data: { user: authUser },
+  } = await supabase.auth.getUser();
+  if (!authUser) throw new Error("Not authenticated");
+  const { error } = await supabase
+    .from("comment_likes")
+    .insert({ comment_id: commentId, user_id: authUser.id });
+  // Ignore unique-violation (23505) — already liked is a no-op.
+  if (error && error.code !== "23505") throw error;
+}
+
+/** Unlike a comment. No-op if the user hadn't liked it. */
+export async function unlikeComment(commentId: string): Promise<void> {
+  const supabase = createClient();
+  const {
+    data: { user: authUser },
+  } = await supabase.auth.getUser();
+  if (!authUser) throw new Error("Not authenticated");
+  const { error } = await supabase
+    .from("comment_likes")
+    .delete()
+    .match({ comment_id: commentId, user_id: authUser.id });
+  if (error) throw error;
 }
 
 export interface PostedComment {

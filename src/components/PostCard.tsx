@@ -123,6 +123,8 @@ export function PostCard({
     bet.stake_cents - meta.original_filled_cents,
   );
   const canCancel = isMyBet && !concluded && originalRemainingCents > 0 && bet.status === "open";
+  const canAcceptMediator =
+    mediatorState?.mode === "requested" && bet.creator_id !== currentUserId;
 
   // Posted-side / taker-side derivation for the body block.
   const posterSide: BetSide = main.poster_side;
@@ -270,10 +272,10 @@ export function PostCard({
               Expires {formatExpiresDate(expiresAt)}
             </span>
           ) : null}
-          {mediatorState ? (
+          {mediatorState && !canAcceptMediator ? (
             <MediatorChip
               state={mediatorState}
-              canAccept={mediatorState.mode === "requested" && bet.creator_id !== currentUserId}
+              canAccept={false}
               onAccept={() => setShowAcceptMediator(true)}
             />
           ) : null}
@@ -313,6 +315,19 @@ export function PostCard({
             · <span className="font-mono tabular-nums">{posterOdds}%</span>
           </div>
 
+        </div>
+      ) : null}
+
+      {/* ── Mediator Needed CTA ─────────────────────────────────────────── */}
+      {canAcceptMediator ? (
+        <div className="px-4 pb-3">
+          <button
+            onClick={() => setShowAcceptMediator(true)}
+            className="w-full rounded-input border-2 border-gold bg-gold/10 text-gold font-bold text-sm py-3 flex items-center justify-center gap-2 hover:bg-gold/20 active:scale-[0.97] transition"
+          >
+            <ScalesIcon className="w-4 h-4 text-gold shrink-0" />
+            Mediator Needed · Volunteer
+          </button>
         </div>
       ) : null}
 

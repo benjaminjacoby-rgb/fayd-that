@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Avatar } from "./Avatar";
 import { RelativeTime } from "./RelativeTime";
 import { fullName } from "@/lib/format";
-import { getComments, postComment } from "@/lib/data/commentsClient";
+import { getComments, likeComment, postComment, unlikeComment } from "@/lib/data/commentsClient";
 import type { CommentView, UserLite } from "@/types/db";
 
 interface Props {
@@ -16,6 +16,9 @@ interface Props {
 
 const VISIBLE_COUNT = 5;
 
+/** Per-comment optimistic like state: { count, likedByMe } */
+type LikeState = { count: number; likedByMe: boolean };
+
 export function CommentsSection({ betId, currentUser, initial }: Props) {
   const [comments, setComments] = useState<CommentView[]>(initial ?? []);
   const [loaded, setLoaded] = useState(false);
@@ -23,6 +26,8 @@ export function CommentsSection({ betId, currentUser, initial }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Map from commentId → { count, likedByMe }
+  const [likeMap, setLikeMap] = useState<Map<string, LikeState>>(new Map());
   const cancelled = useRef(false);
 
   useEffect(() => {
@@ -31,6 +36,11 @@ export function CommentsSection({ betId, currentUser, initial }: Props) {
       .then((rows) => {
         if (cancelled.current) return;
         setComments(rows);
+        const initMap = new Map<string, LikeState>();
+        for (const r of rows) {
+          initMap.set(r.id, { count: r.like_count ?? 0, likedByMe: r.liked_by_me ?? false });
+        }
+        setLikeMap(initMap);
         setLoaded(true);
       })
       .catch(() => {
@@ -41,6 +51,25 @@ export function CommentsSection({ betId, currentUser, initial }: Props) {
       cancelled.current = true;
     };
   }, [betId]);
+
+  async function handleLike(commentId: string) {
+    const prev = likeMap.get(commentId) ?? { count: 0, likedByMe: false };
+    const next: LikeState = prev.likedByMe
+      ? { count: Math.max(0, prev.count - 1), likedByMe: false }
+      : { count: prev.count + 1, likedByMe: true };
+    // Optimistic update.
+    setLikeMap((m) => new Map(m).set(commentId, next));
+    try {
+      if (prev.likedByMe) {
+        await unlikeComment(commentId);
+      } else {
+        await likeComment(commentId);
+      }
+    } catch {
+      // Rollback on failure.
+      setLikeMap((m) => new Map(m).set(commentId, prev));
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -57,8 +86,11 @@ export function CommentsSection({ betId, currentUser, initial }: Props) {
         user: currentUser,
         text: row.content,
         created_at: row.created_at,
+        like_count: 0,
+        liked_by_me: false,
       };
       setComments((prev) => [inserted, ...prev]);
+      setLikeMap((m) => new Map(m).set(row.id, { count: 0, likedByMe: false }));
       setText("");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Could not post comment";
@@ -78,30 +110,47 @@ export function CommentsSection({ betId, currentUser, initial }: Props) {
         <div className="text-[#777] text-xs">Be the first to comment</div>
       ) : (
         <ul className="flex flex-col gap-2.5">
-          {visible.map((c) => (
-            <li key={c.id} className="flex gap-2 items-start">
-              <Avatar
-                first={c.user.first_name}
-                lastInitial={c.user.last_name_initial}
-                color={c.user.avatar_color}
-                imageUrl={c.user.avatar_url}
-                size={28}
-              />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-baseline gap-1.5 flex-wrap">
-                  <span className="text-sm font-semibold text-text2">{fullName(c.user)}</span>
-                  <RelativeTime
-                    iso={c.created_at}
-                    formatter={formatRelative}
-                    className="text-[10px] text-text3 font-mono"
-                  />
+          {visible.map((c) => {
+            const ls = likeMap.get(c.id) ?? { count: 0, likedByMe: false };
+            return (
+              <li key={c.id} className="flex gap-2 items-start">
+                <Avatar
+                  first={c.user.first_name}
+                  lastInitial={c.user.last_name_initial}
+                  color={c.user.avatar_color}
+                  imageUrl={c.user.avatar_url}
+                  size={28}
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-baseline gap-1.5 flex-wrap">
+                    <span className="text-sm font-semibold text-text2">{fullName(c.user)}</span>
+                    <RelativeTime
+                      iso={c.created_at}
+                      formatter={formatRelative}
+                      className="text-[10px] text-text3 font-mono"
+                    />
+                  </div>
+                  <div className="flex items-end gap-2">
+                    <div className="flex-1 text-sm text-[#cfcfcf] break-words leading-snug">
+                      {c.text}
+                    </div>
+                    <button
+                      onClick={() => handleLike(c.id)}
+                      className={`flex items-center gap-0.5 text-xs transition shrink-0 ${
+                        ls.likedByMe ? "text-no" : "text-text3 hover:text-no/70"
+                      }`}
+                      aria-label={ls.likedByMe ? "Unlike" : "Like"}
+                    >
+                      <span className="text-base leading-none">{ls.likedByMe ? "❤️" : "🤍"}</span>
+                      {ls.count > 0 ? (
+                        <span className="font-mono text-[10px]">{ls.count}</span>
+                      ) : null}
+                    </button>
+                  </div>
                 </div>
-                <div className="text-sm text-[#cfcfcf] break-words leading-snug">
-                  {c.text}
-                </div>
-              </div>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       )}
       {hasMore && !showAll ? (
