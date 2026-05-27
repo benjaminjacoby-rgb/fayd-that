@@ -7,6 +7,7 @@ import { PostCard } from "@/components/PostCard";
 import { FaydThatSheet } from "@/components/FaydThatSheet";
 import { StartNewContractSheet } from "@/components/StartNewContractSheet";
 import { Toast } from "@/components/Toast";
+import { NameUpdatePrompt } from "@/components/NameUpdatePrompt";
 import { addMyActiveContract } from "@/lib/sessionState";
 import { formatCents } from "@/lib/format";
 import { USE_MOCK_DATA } from "@/lib/config";
@@ -35,15 +36,18 @@ type StartSheetState = { betId: string; initialYesProbability?: number } | null;
 export function HomeClient({
   bets: initialBets,
   currentUser,
+  showNamePrompt: showNamePromptProp = false,
 }: {
   bets: BetView[];
   currentUser: UserLite;
+  showNamePrompt?: boolean;
 }) {
   const router = useRouter();
   const [bets, setBets] = useState<BetView[]>(initialBets);
   const [faydSheet, setFaydSheet] = useState<FaydSheetState>(null);
   const [startSheet, setStartSheet] = useState<StartSheetState>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [namePromptVisible, setNamePromptVisible] = useState(showNamePromptProp);
 
   // Keep local state aligned with server-fetched bets when the page is
   // re-rendered (e.g. via router.refresh on focus).
@@ -143,6 +147,15 @@ export function HomeClient({
       />
 
       {toast ? <Toast message={toast} onDone={() => setToast(null)} /> : null}
+
+      {namePromptVisible ? (
+        <NameUpdatePrompt
+          onDone={() => {
+            setNamePromptVisible(false);
+            router.refresh();
+          }}
+        />
+      ) : null}
     </>
   );
 }

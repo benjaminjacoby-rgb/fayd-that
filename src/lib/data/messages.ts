@@ -294,13 +294,10 @@ function toChatMessageView(m: DbMessage, usersById: Map<string, DbUser>): ChatMe
 }
 
 function toUserLite(u: DbUser): UserLite {
-  const parts = (u.full_name ?? "").trim().split(/\s+/).filter(Boolean);
-  const first = parts[0] ?? null;
-  const last = parts.length > 1 ? (parts[parts.length - 1][0] ?? "").toUpperCase() : null;
   return {
     id: u.id,
-    first_name: first,
-    last_name_initial: last && last.length ? last : null,
+    first_name: u.full_name?.trim() ?? null,
+    last_name_initial: null,
     username: u.username,
     avatar_color: pickAvatarColor(u.id),
     avatar_url: u.avatar_url ?? null,
@@ -308,7 +305,6 @@ function toUserLite(u: DbUser): UserLite {
 }
 
 function formatName(u: UserLite): string {
-  if (u.first_name && u.last_name_initial) return `${u.first_name} ${u.last_name_initial}.`;
   if (u.first_name) return u.first_name;
   if (u.username) return `@${u.username}`;
   return "Friend";

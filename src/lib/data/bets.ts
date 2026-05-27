@@ -61,6 +61,7 @@ interface DbBet {
   mediator_id: string | null;
   status: "open" | "filled" | "closed" | "concluded" | "settled";
   winning_side: "YES" | "NO" | null;
+  settled_at: string | null;
   created_at: string;
 }
 
@@ -290,7 +291,7 @@ function buildBetView(
     expires_at: bet.expires_at,
     winning_side: bet.winning_side ?? null,
     created_at: bet.created_at,
-    resolved_at: null,
+    resolved_at: bet.settled_at ?? null,
     creator,
     participants: [],
     contracts: contractViews,
@@ -354,10 +355,8 @@ function toUserLite(id: string | null | undefined, u: DbUser | undefined): UserL
 
 function splitFullName(full: string | null): { first: string | null; last: string | null } {
   if (!full) return { first: null, last: null };
-  const parts = full.trim().split(/\s+/);
-  const first = parts[0] ?? null;
-  const last = parts.length > 1 ? (parts[parts.length - 1][0] ?? "").toUpperCase() : null;
-  return { first, last: last && last.length ? last : null };
+  // Store the entire full name in `first`; `last` is no longer used.
+  return { first: full.trim(), last: null };
 }
 
 // Amounts in the DB are stored as numeric dollar units; UI works in cents.

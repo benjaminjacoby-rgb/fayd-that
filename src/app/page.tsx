@@ -12,6 +12,15 @@ import { getUnreadCount } from "@/lib/supabase/notifications";
 
 export const dynamic = "force-dynamic";
 
+/** Detect names that were stored in the old "First L." / "First L" format. */
+function hasOldNameFormat(fullName: string | null): boolean {
+  if (!fullName) return false;
+  const words = fullName.trim().split(/\s+/).filter(Boolean);
+  if (words.length < 2) return false;
+  // Last word is a single letter (optionally followed by a period).
+  return /^[A-Za-z]\.?$/.test(words[words.length - 1]);
+}
+
 export default async function HomePage() {
   let me = USE_MOCK_DATA ? MOCK_CURRENT_USER : await getCurrentUserRow();
   if (!me) me = MOCK_CURRENT_USER;
@@ -22,6 +31,13 @@ export default async function HomePage() {
   const unread = baseUnread + (USE_MOCK_DATA ? MOCK_INCOMING_FRIEND_REQUESTS.length : 0);
 
   const activeCount = bets.filter((b) => b.status === "open" || b.status === "locked").length;
+
+  // Show the one-time name-update prompt if the user hasn't seen it yet AND
+  // their stored name looks like the old "First L." format.
+  const showNamePrompt =
+    !USE_MOCK_DATA &&
+    !me.has_seen_name_prompt &&
+    hasOldNameFormat(me.first_name);
 
   return (
     <AppShell
@@ -40,6 +56,7 @@ export default async function HomePage() {
           avatar_color: me.avatar_color,
           avatar_url: me.avatar_url ?? null,
         }}
+        showNamePrompt={showNamePrompt}
       />
     </AppShell>
   );

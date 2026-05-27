@@ -32,6 +32,8 @@ export interface UserRow {
   stripe_customer_id: string | null;
   wallet_balance_cents: number;
   created_at: string;
+  /** True once the user has saved or dismissed the one-time "update your name" prompt. */
+  has_seen_name_prompt?: boolean;
 }
 
 export type UserLite = Pick<

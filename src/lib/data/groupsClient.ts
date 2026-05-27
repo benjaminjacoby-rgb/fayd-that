@@ -199,15 +199,10 @@ function toUserLite(
   id: string,
   u: { id: string; username: string | null; full_name: string | null; avatar_url: string | null } | null,
 ): UserLite {
-  const full = u?.full_name ?? null;
-  const parts = full ? full.trim().split(/\s+/) : [];
-  const first = parts[0] ?? null;
-  const last =
-    parts.length > 1 ? (parts[parts.length - 1][0] ?? "").toUpperCase() : null;
   return {
     id,
-    first_name: first,
-    last_name_initial: last && last.length ? last : null,
+    first_name: u?.full_name?.trim() ?? null,
+    last_name_initial: null,
     username: u?.username ?? null,
     avatar_color: pickAvatarColor(id),
     avatar_url: u?.avatar_url ?? null,

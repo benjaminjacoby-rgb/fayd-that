@@ -111,15 +111,12 @@ export async function cancelSentFriendRequest(friendshipId: string): Promise<voi
 }
 
 function toUserRow(u: DbUser): UserRow {
-  const parts = (u.full_name ?? "").trim().split(/\s+/).filter(Boolean);
-  const first = parts[0] ?? null;
-  const last = parts.length > 1 ? (parts[parts.length - 1][0] ?? "").toUpperCase() : null;
   return {
     id: u.id,
     phone: u.phone_number ?? "",
     username: u.username,
-    first_name: first,
-    last_name_initial: last && last.length ? last : null,
+    first_name: u.full_name?.trim() ?? null,
+    last_name_initial: null,
     avatar_color: pickAvatarColor(u.id),
     avatar_url: u.avatar_url ?? null,
     stripe_customer_id: null,

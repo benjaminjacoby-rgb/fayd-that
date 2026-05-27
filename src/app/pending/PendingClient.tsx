@@ -15,7 +15,66 @@ import {
   type PendingContractView,
 } from "@/lib/sessionState";
 import { closeBet } from "@/lib/data/betsClient";
-import type { BetView, UserLite } from "@/types/db";
+import type { BetSide, BetView, UserLite } from "@/types/db";
+
+// ── History helpers ───────────────────────────────────────────────────────────
+
+interface HistoryItem {
+  /** Unique key for React lists */
+  id: string;
+  bet: BetView;
+  /** Which side the current user was on */
+  userSide: BetSide;
+  /** How much they staked (cents) */
+  userStakeCents: number;
+  /** Their implied odds as a percentage (e.g. 60 for 60%) */
+  userOdds: number;
+  /** True when the current user posted this bet */
+  isPost: boolean;
+  /** ISO string used for sorting: resolved_at > created_at */
+  sortKey: string;
+}
+
+/**
+ * Returns the total payout in cents from the user's perspective:
+ *   positive  = they received this amount (green)
+ *   negative  = they lost this amount (red)
+ */
+function computePayoutCents(item: HistoryItem): number {
+  const ws = item.bet.winning_side;
+  if (!ws) return 0;
+  const won = ws.toLowerCase() === item.userSide;
+
+  if (item.isPost) {
+    const fillerOdds = 100 - item.userOdds;
+    const filledCents = item.bet.post_meta?.original_filled_cents ?? 0;
+    if (won) {
+      // Poster receives their stake back + everything the fillers put in.
+      return item.userStakeCents + filledCents;
+    } else {
+      // Poster loses only the matched portion of their stake.
+      if (fillerOdds <= 0) return 0;
+      return -Math.round(filledCents * item.userOdds / fillerOdds);
+    }
+  } else {
+    // Filler
+    if (won) {
+      if (item.userOdds <= 0) return 0;
+      return Math.round(item.userStakeCents / (item.userOdds / 100));
+    } else {
+      return -item.userStakeCents;
+    }
+  }
+}
+
+function formatHistoryDate(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "2-digit",
+  });
+}
 
 export interface PendingPostSeed {
   bet: BetView;
@@ -49,6 +108,7 @@ export function PendingClient({
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [tab, setTab] = useState<Tab>("active");
+  const [historySearch, setHistorySearch] = useState("");
   useEffect(() => setMounted(true), []);
   const onSettled = () => router.refresh();
 
@@ -97,6 +157,43 @@ export function PendingClient({
 
   const hasActive = actives.length > 0 || posts.length > 0;
   const hasHistory = resolvedActives.length > 0 || resolvedPosts.length > 0;
+
+  // Unified, sorted history list for the History tab.
+  const historyItems: HistoryItem[] = [
+    ...resolvedPosts.map((p): HistoryItem => {
+      const posterSide = (p.bet.post_meta?.poster_side ?? "yes") as BetSide;
+      const userOdds =
+        posterSide === "yes" ? p.bet.yes_probability : 100 - p.bet.yes_probability;
+      return {
+        id: `post-${p.bet.id}`,
+        bet: p.bet,
+        userSide: posterSide,
+        userStakeCents: p.bet.stake_cents,
+        userOdds,
+        isPost: true,
+        sortKey: p.bet.resolved_at ?? p.bet.created_at,
+      };
+    }),
+    ...resolvedActives.map((a): HistoryItem => ({
+      id: `active-${a.id}`,
+      bet: a.bet,
+      userSide: a.side,
+      userStakeCents: a.stakeCents,
+      userOdds: a.side === "yes" ? a.yesPercent : 100 - a.yesPercent,
+      isPost: false,
+      sortKey: a.bet.resolved_at ?? a.bet.created_at,
+    })),
+  ].sort((a, b) => b.sortKey.localeCompare(a.sortKey));
+
+  const historyQuery = historySearch.toLowerCase().trim();
+  const filteredHistory = historyQuery
+    ? historyItems.filter((item) => {
+        if (item.bet.question.toLowerCase().includes(historyQuery)) return true;
+        const name = fullName(item.bet.creator).toLowerCase();
+        const username = (item.bet.creator.username ?? "").toLowerCase();
+        return name.includes(historyQuery) || username.includes(historyQuery);
+      })
+    : historyItems;
 
   if (mounted && !hasActive && !hasHistory) {
     return <EmptyState />;
@@ -159,48 +256,47 @@ export function PendingClient({
           </section>
         </div>
       ) : (
-        <div className="px-4 pt-4 pb-6 flex flex-col gap-6">
+        <div className="px-4 pt-3 pb-6 flex flex-col gap-4">
+          {/* Search bar */}
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text3 pointer-events-none text-sm">
+              🔍
+            </span>
+            <input
+              type="text"
+              value={historySearch}
+              onChange={(e) => setHistorySearch(e.target.value)}
+              placeholder="Search by question or poster…"
+              className="w-full bg-bg3 rounded-pill pl-9 pr-4 py-2.5 text-sm text-text placeholder:text-text3 focus:outline-none focus:ring-2 focus:ring-yes/30"
+            />
+            {historySearch ? (
+              <button
+                onClick={() => setHistorySearch("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-text3 hover:text-text2 text-lg leading-none"
+                aria-label="Clear search"
+              >
+                ×
+              </button>
+            ) : null}
+          </div>
+
+          {/* Results */}
           {!hasHistory ? (
-            <p className="text-text3 text-sm italic mt-4">
+            <p className="text-text3 text-sm italic pt-4 text-center">
               Resolved bets will show up here.
             </p>
+          ) : filteredHistory.length === 0 ? (
+            <p className="text-text3 text-sm italic pt-4 text-center">
+              No bets match "{historySearch}"
+            </p>
           ) : (
-            <>
-              {resolvedPosts.length > 0 ? (
-                <section>
-                  <SectionHeader title="My Posts" count={resolvedPosts.length} />
-                  <ul className="flex flex-col gap-3 mt-3">
-                    {resolvedPosts.map((p) => (
-                      <li key={p.bet.id}>
-                        <PostRow
-                          row={p}
-                          currentUserId={currentUser.id}
-                          onSettled={onSettled}
-                          resolved
-                        />
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              ) : null}
-              {resolvedActives.length > 0 ? (
-                <section>
-                  <SectionHeader title="Filled" count={resolvedActives.length} />
-                  <ul className="flex flex-col gap-3 mt-3">
-                    {resolvedActives.map((a) => (
-                      <li key={a.id}>
-                        <ActiveRow
-                          row={a}
-                          currentUserId={currentUser.id}
-                          onSettled={onSettled}
-                          resolved
-                        />
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              ) : null}
-            </>
+            <ul className="flex flex-col gap-3">
+              {filteredHistory.map((item) => (
+                <li key={item.id}>
+                  <HistoryCard item={item} currentUserId={currentUser.id} />
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       )}
@@ -469,6 +565,102 @@ function Stat({ label, children }: { label: string; children: React.ReactNode })
       <div className="text-[10px] uppercase tracking-wide text-text3">{label}</div>
       <div className="mt-0.5">{children}</div>
     </div>
+  );
+}
+
+// ── HistoryCard ───────────────────────────────────────────────────────────────
+
+function HistoryCard({
+  item,
+  currentUserId,
+}: {
+  item: HistoryItem;
+  currentUserId: string;
+}) {
+  const { bet, userSide, isPost } = item;
+  const ws = bet.winning_side; // "YES" | "NO" | null
+  const won = ws ? ws.toLowerCase() === userSide : null;
+  const payout = computePayoutCents(item);
+  const dateStr = formatHistoryDate(bet.resolved_at ?? bet.created_at);
+
+  const posterName = isPost
+    ? "Your bet"
+    : fullName(bet.creator) !== "—"
+      ? fullName(bet.creator)
+      : bet.creator.username
+        ? `@${bet.creator.username}`
+        : "Unknown poster";
+
+  return (
+    <article className="bg-bg2 rounded-card p-4 flex flex-col gap-2.5">
+      {/* Row 1: poster info + date */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          {!isPost ? (
+            <Avatar
+              first={bet.creator.first_name}
+              lastInitial={bet.creator.last_name_initial}
+              color={bet.creator.avatar_color}
+              imageUrl={bet.creator.avatar_url}
+              size={20}
+            />
+          ) : null}
+          <span
+            className={`text-xs font-medium truncate ${
+              isPost ? "text-text3" : "text-text2"
+            }`}
+          >
+            {posterName}
+          </span>
+        </div>
+        <span className="text-[10px] text-text3 font-mono shrink-0">{dateStr}</span>
+      </div>
+
+      {/* Row 2: question */}
+      <p className="text-sm font-medium leading-snug text-text">{bet.question}</p>
+
+      {/* Row 3: winner pill + payout */}
+      <div className="flex items-center justify-between gap-2">
+        {/* Left: winner + user's side badge */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {ws ? (
+            <span
+              className={`text-[11px] font-bold uppercase tracking-wide rounded-pill px-2 py-0.5 ${
+                ws === "YES"
+                  ? "bg-yes/15 text-yes"
+                  : "bg-no/15 text-no"
+              }`}
+            >
+              {ws} won
+            </span>
+          ) : (
+            <span className="text-[11px] text-text3 italic">Concluded</span>
+          )}
+          <span
+            className={`text-[10px] font-semibold uppercase tracking-wide rounded-pill px-1.5 py-px ${
+              userSide === "yes"
+                ? "bg-yes/10 text-yes/70"
+                : "bg-no/10 text-no/70"
+            }`}
+          >
+            You: {userSide.toUpperCase()}
+          </span>
+        </div>
+
+        {/* Right: payout */}
+        {ws && payout !== 0 ? (
+          <span
+            className={`text-sm font-bold font-mono shrink-0 ${
+              won ? "text-yes" : "text-no"
+            }`}
+          >
+            {won
+              ? `+${formatCents(payout)}`
+              : `-${formatCents(Math.abs(payout))}`}
+          </span>
+        ) : null}
+      </div>
+    </article>
   );
 }
 

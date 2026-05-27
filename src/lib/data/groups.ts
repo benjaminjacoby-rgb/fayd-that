@@ -105,8 +105,6 @@ function toUserLite(id: string | null | undefined, u: DbUser | undefined): UserL
 
 function splitFullName(full: string | null): { first: string | null; last: string | null } {
   if (!full) return { first: null, last: null };
-  const parts = full.trim().split(/\s+/);
-  const first = parts[0] ?? null;
-  const last = parts.length > 1 ? (parts[parts.length - 1][0] ?? "").toUpperCase() : null;
-  return { first, last: last && last.length ? last : null };
+  // Store the entire full name in `first`; `last` is no longer used.
+  return { first: full.trim(), last: null };
 }

@@ -59,6 +59,19 @@ export async function uploadAvatar(file: File): Promise<string> {
 }
 
 /**
+ * Mark `has_seen_name_prompt = true` so the one-time name-update popup is
+ * never shown again for this user.
+ */
+export async function dismissNamePrompt(): Promise<void> {
+  const supabase = createClient();
+  const {
+    data: { user: authUser },
+  } = await supabase.auth.getUser();
+  if (!authUser) return;
+  await supabase.from("users").update({ has_seen_name_prompt: true }).eq("id", authUser.id);
+}
+
+/**
  * Check whether a username is available. Returns true if no other user has
  * it (case-insensitive). Used to give the user immediate feedback in the
  * edit-profile sheet instead of failing at save-time on the unique index.

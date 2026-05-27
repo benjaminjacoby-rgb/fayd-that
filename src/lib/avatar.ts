@@ -16,7 +16,16 @@ export function pickAvatarColor(seed: string): AvatarColor {
 }
 
 export function initials(first: string | null, lastInitial: string | null): string {
-  const f = first?.trim()[0]?.toUpperCase() ?? "?";
-  const l = lastInitial?.trim()[0]?.toUpperCase() ?? "";
-  return `${f}${l}`;
+  // Legacy path: explicit lastInitial provided (e.g. from old DB rows still in flight).
+  if (lastInitial) {
+    const f = first?.trim()[0]?.toUpperCase() ?? "?";
+    const l = lastInitial.trim()[0]?.toUpperCase() ?? "";
+    return `${f}${l}`;
+  }
+  // New path: full name stored in `first`. Derive two initials from words.
+  const parts = (first ?? "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  const f = parts[0][0]?.toUpperCase() ?? "?";
+  if (parts.length === 1) return f;
+  return `${f}${parts[parts.length - 1][0]?.toUpperCase() ?? ""}`;
 }

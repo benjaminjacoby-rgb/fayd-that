@@ -167,11 +167,10 @@ export function ProfileClient({
           me={me}
           onClose={() => setEditing(false)}
           onSaved={({ fullName: newName, username, avatarUrl }) => {
-            const { first, last } = splitFullName(newName);
             setMe({
               ...me,
-              first_name: first,
-              last_name_initial: last,
+              first_name: newName?.trim() ?? me.first_name,
+              last_name_initial: null,
               username,
               avatar_url: avatarUrl,
             });
@@ -186,9 +185,3 @@ export function ProfileClient({
   );
 }
 
-function splitFullName(full: string): { first: string | null; last: string | null } {
-  const parts = full.trim().split(/\s+/).filter(Boolean);
-  const first = parts[0] ?? null;
-  const last = parts.length > 1 ? (parts[parts.length - 1][0] ?? "").toUpperCase() : null;
-  return { first, last: last && last.length ? last : null };
-}

@@ -10,6 +10,7 @@ interface DbUser {
   avatar_url: string | null;
   wallet_balance: number | null;
   created_at: string;
+  has_seen_name_prompt: boolean | null;
 }
 
 /**
@@ -27,7 +28,7 @@ export async function getCurrentUserRow(): Promise<UserRow | null> {
 
   const { data, error } = await supabase
     .from("users")
-    .select("id, username, full_name, phone_number, avatar_url, wallet_balance, created_at")
+    .select("id, username, full_name, phone_number, avatar_url, wallet_balance, created_at, has_seen_name_prompt")
     .eq("id", authUser.id)
     .maybeSingle();
   if (error) throw error;
@@ -110,6 +111,7 @@ export function dbUserToUserRow(u: {
   avatar_url: string | null;
   wallet_balance: number | null;
   created_at: string;
+  has_seen_name_prompt?: boolean | null;
 }): UserRow {
   const { first, last } = splitFullName(u.full_name);
   return {
@@ -123,13 +125,12 @@ export function dbUserToUserRow(u: {
     stripe_customer_id: null,
     wallet_balance_cents: Math.round(Number(u.wallet_balance ?? 0) * 100),
     created_at: u.created_at,
+    has_seen_name_prompt: u.has_seen_name_prompt ?? false,
   };
 }
 
 function splitFullName(full: string | null): { first: string | null; last: string | null } {
   if (!full) return { first: null, last: null };
-  const parts = full.trim().split(/\s+/);
-  const first = parts[0] ?? null;
-  const last = parts.length > 1 ? (parts[parts.length - 1][0] ?? "").toUpperCase() : null;
-  return { first, last: last && last.length ? last : null };
+  // Store the entire full name in `first`; `last` is no longer used.
+  return { first: full.trim(), last: null };
 }

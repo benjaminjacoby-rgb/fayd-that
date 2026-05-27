@@ -50,7 +50,7 @@ export function OnboardingClient() {
       const { error } = await supabase.from("users").upsert({
         id: user.id,
         phone_number: user.phone ?? "",
-        full_name: `${first.trim()} ${last.trim().slice(0, 1).toUpperCase()}`.trim(),
+        full_name: `${first.trim()} ${last.trim()}`.trim(),
         username: username.toLowerCase().trim(),
         avatar_url: null,
       });
@@ -179,12 +179,11 @@ export function OnboardingClient() {
             className="bg-bg3 rounded-input px-3 py-2.5 w-full outline-none focus:ring-2 focus:ring-yes/40"
           />
         </Field>
-        <Field label="Last initial">
+        <Field label="Last name">
           <input
             value={last}
-            maxLength={1}
             onChange={(e) => setLast(e.target.value)}
-            className="bg-bg3 rounded-input px-3 py-2.5 w-full outline-none focus:ring-2 focus:ring-yes/40 text-center"
+            className="bg-bg3 rounded-input px-3 py-2.5 w-full outline-none focus:ring-2 focus:ring-yes/40"
           />
         </Field>
       </div>

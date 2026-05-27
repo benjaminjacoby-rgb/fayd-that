@@ -21,14 +21,10 @@ interface DbCommentRow {
 
 function toUserLite(row: DbCommentRow["user"], fallbackId: string): UserLite {
   const id = row?.id ?? fallbackId;
-  const full = row?.full_name?.trim() ?? "";
-  const parts = full.length ? full.split(/\s+/) : [];
-  const first = parts[0] ?? null;
-  const last = parts.length > 1 ? (parts[parts.length - 1][0] ?? "").toUpperCase() : null;
   return {
     id,
-    first_name: first,
-    last_name_initial: last && last.length ? last : null,
+    first_name: row?.full_name?.trim() ?? null,
+    last_name_initial: null,
     username: row?.username ?? null,
     avatar_color: pickAvatarColor(id),
     avatar_url: row?.avatar_url ?? null,
