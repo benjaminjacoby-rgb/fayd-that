@@ -380,21 +380,14 @@ export function makeHandlers({
       // Lock the filler's stake in their wallet, then refresh so the new
       // balance reaches the top bar. The remote re-checks expires_at against
       // current DB state, so a stale UI cannot beat the cutoff.
+      // Note: bet_filled notification is sent inside fillBetRemote with the
+      // correct actorId — do NOT fire a second one here.
       fillBetRemote(amountCents, bet.id)
         .then(() => onRefresh?.())
         .catch((e) => {
           const msg = e instanceof Error ? e.message : "Fill failed";
           setToast(msg);
         });
-      // Notify the original poster that someone faded their bet.
-      if (bet.creator_id && bet.creator_id !== currentUser.id) {
-        insertNotification({
-          userId: bet.creator_id,
-          type: "bet_filled",
-          referenceId: bet.id,
-          referenceType: "bet",
-        }).catch(() => {});
-      }
     }
   }
 

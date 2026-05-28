@@ -14,6 +14,8 @@ interface NotifPayload {
   actor_name?: string | null;
   actor_avatar_url?: string | null;
   bet_question?: string | null;
+  message_preview?: string | null;
+  group_name?: string | null;
 }
 
 export function NotificationsClient({
@@ -127,7 +129,11 @@ function ActorAvatar({
         />
       );
     }
-    const initial = (actorName ?? "?").trim().slice(0, 1).toUpperCase() || "?";
+    const nameParts = (actorName ?? "").trim().split(/\s+/).filter(Boolean);
+    const initial =
+      nameParts.length >= 2
+        ? `${nameParts[0][0]}${nameParts[nameParts.length - 1][0]}`.toUpperCase()
+        : (nameParts[0]?.[0]?.toUpperCase() ?? "?");
     const colorClass = bgColorClass(actorId ?? actorName ?? "?");
     return (
       <div
@@ -207,7 +213,21 @@ function Description({ type, payload }: { type: string; payload: NotifPayload })
         </>
       );
     case "new_message":
-      return <span className="text-text2">New message</span>;
+      return (
+        <div>
+          <div>
+            <span className="font-semibold">{name}</span>
+            {payload.group_name ? (
+              <span className="text-text2"> · {payload.group_name}</span>
+            ) : null}
+          </div>
+          {payload.message_preview ? (
+            <div className="text-text2 truncate">{payload.message_preview}</div>
+          ) : (
+            <div className="text-text2">sent you a message</div>
+          )}
+        </div>
+      );
     default:
       return <span className="text-text2">{type.replace(/_/g, " ")}</span>;
   }

@@ -196,6 +196,7 @@ export async function sendMessage(
       insertNotification({
         userId: uid,
         type: "new_message",
+        actorId: authUser.id,
         referenceId: data.id,
         referenceType: "message",
       }),
