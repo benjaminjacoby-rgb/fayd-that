@@ -162,6 +162,17 @@ export function ProfileClient({
         </Link>
       </section>
 
+      {/* Legal links */}
+      <div className="flex items-center justify-center gap-3 py-2 pb-4">
+        <Link href="/terms" className="text-text3 text-xs hover:text-text2 transition">
+          Terms of Service
+        </Link>
+        <span className="text-text3 text-xs" aria-hidden>·</span>
+        <Link href="/privacy" className="text-text3 text-xs hover:text-text2 transition">
+          Privacy Policy
+        </Link>
+      </div>
+
       {editing ? (
         <EditProfileSheet
           me={me}

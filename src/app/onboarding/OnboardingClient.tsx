@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Avatar } from "@/components/Avatar";
 import { Button } from "@/components/ui/Button";
@@ -203,6 +204,16 @@ export function OnboardingClient() {
         <Button full disabled={!valid || busy} onClick={submit}>
           {busy ? "Saving…" : "Continue"}
         </Button>
+        <p className="text-center text-[11px] text-text3 mt-3 px-2 leading-relaxed">
+          By continuing you agree to our{" "}
+          <Link href="/terms" className="underline hover:text-text2 transition">
+            Terms of Service
+          </Link>{" "}
+          and{" "}
+          <Link href="/privacy" className="underline hover:text-text2 transition">
+            Privacy Policy
+          </Link>
+        </p>
       </div>
     </div>
   );

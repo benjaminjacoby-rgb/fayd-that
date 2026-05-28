@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/Button";
 import { USE_MOCK_DATA } from "@/lib/config";
@@ -90,6 +91,16 @@ export function LoginClient() {
           <Button full disabled={busy || phone.length < 7} onClick={sendOtp}>
             {busy ? "Sending…" : "Send code"}
           </Button>
+          <p className="text-center text-[11px] text-text3 leading-relaxed">
+            By continuing you agree to our{" "}
+            <Link href="/terms" className="underline hover:text-text2 transition">
+              Terms of Service
+            </Link>{" "}
+            and{" "}
+            <Link href="/privacy" className="underline hover:text-text2 transition">
+              Privacy Policy
+            </Link>
+          </p>
           {USE_MOCK_DATA ? (
             <p className="text-text3 text-xs text-center mt-2">
               Mock mode — any phone works, any code works.
