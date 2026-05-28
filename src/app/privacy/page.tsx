@@ -73,8 +73,8 @@ export default function PrivacyPage() {
             </ul>
             <p>
               To exercise any of these rights, contact us at{" "}
-              <a href="mailto:legal@faydthat.com" className="text-yes underline">
-                legal@faydthat.com
+              <a href="mailto:benjamin.jacoby@gmail.com" className="text-yes underline">
+                benjamin.jacoby@gmail.com
               </a>
               .
             </p>
