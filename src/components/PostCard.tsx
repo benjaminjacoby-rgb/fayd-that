@@ -95,8 +95,6 @@ export function PostCard({
   const [showAcceptMediator, setShowAcceptMediator] = useState(false);
   const [showConcludeConfirm, setShowConcludeConfirm] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
-  void currentUser;
-
   const meta = bet.post_meta;
   if (!meta) return null;
 
@@ -364,6 +362,37 @@ export function PostCard({
         )}
       </div>
 
+      {/* ── Poll vote ──────────────────────────────────────────────────── */}
+      {(expired || concluded) ? (
+        <div className="px-4 pb-3">
+          <div className="text-[10px] uppercase tracking-wide text-text3 font-medium mb-2">
+            Community poll · Who wins?
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => onVote(bet, "yes")}
+              className={`rounded-input py-2 text-sm font-semibold transition-all active:scale-[0.97] border ${
+                meta.poll.my_vote === "yes"
+                  ? "bg-yes/20 text-yes border-yes/50"
+                  : "bg-bg3 text-text2 border-bg4 hover:border-yes/40 hover:text-yes"
+              }`}
+            >
+              👍 YES · {meta.poll.yes_votes}
+            </button>
+            <button
+              onClick={() => onVote(bet, "no")}
+              className={`rounded-input py-2 text-sm font-semibold transition-all active:scale-[0.97] border ${
+                meta.poll.my_vote === "no"
+                  ? "bg-no/20 text-no border-no/50"
+                  : "bg-bg3 text-text2 border-bg4 hover:border-no/40 hover:text-no"
+              }`}
+            >
+              👎 NO · {meta.poll.no_votes}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {/* ── Reactions ──────────────────────────────────────────────────── */}
       <div className="px-4 pb-3 flex items-center gap-1.5 flex-wrap">
         {meta.reactions.map((r) => (
@@ -583,14 +612,6 @@ function DotsIcon() {
       <circle cx="5" cy="12" r="1.7" />
       <circle cx="12" cy="12" r="1.7" />
       <circle cx="19" cy="12" r="1.7" />
-    </svg>
-  );
-}
-
-function ChatIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4" aria-hidden>
-      <path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z" />
     </svg>
   );
 }

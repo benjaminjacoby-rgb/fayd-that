@@ -206,6 +206,25 @@ export async function sendMessage(
   return toChatMessageView(data as DbMessage, sender);
 }
 
+/**
+ * Persist a "read up to now" timestamp for the signed-in user on a specific
+ * conversation. Called when the chat view mounts so the server can compute
+ * accurate unread counts on the next inbox load.
+ */
+export async function markConversationReadRemote(conversationId: string): Promise<void> {
+  const supabase = createClient();
+  const {
+    data: { user: authUser },
+  } = await supabase.auth.getUser();
+  if (!authUser) return;
+  const { error } = await supabase
+    .from("conversation_participants")
+    .update({ last_read_at: new Date().toISOString() })
+    .eq("conversation_id", conversationId)
+    .eq("user_id", authUser.id);
+  if (error) console.warn("markConversationReadRemote failed", error);
+}
+
 export function toChatMessageView(m: DbMessage, sender: UserLite): ChatMessageView {
   if (m.bet_id) {
     return {

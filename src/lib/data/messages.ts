@@ -49,12 +49,19 @@ export async function getInbox(): Promise<{ dms: ConversationView[]; groups: Con
   } = await supabase.auth.getUser();
   if (!authUser) return { dms: [], groups: [] };
 
+  // Fetch the current user's participant rows, including their last_read_at
+  // timestamps so we can compute per-conversation unread counts below.
   const { data: myPartRows, error: pErr } = await supabase
     .from("conversation_participants")
-    .select("conversation_id")
+    .select("conversation_id, last_read_at")
     .eq("user_id", authUser.id);
   if (pErr) throw pErr;
-  const convIds = (myPartRows ?? []).map((r) => r.conversation_id).filter((x): x is string => !!x);
+  const myParts = (myPartRows ?? []) as Array<{ conversation_id: string; last_read_at: string | null }>;
+  const convIds = myParts.map((r) => r.conversation_id).filter((x): x is string => !!x);
+  // Map conversation_id → last_read_at for unread count computation.
+  const lastReadByConv = new Map<string, string | null>(
+    myParts.map((r) => [r.conversation_id, r.last_read_at]),
+  );
   if (convIds.length === 0) return { dms: [], groups: [] };
 
   const [convosRes, partsRes, lastMsgsRes] = await Promise.all([
@@ -80,10 +87,20 @@ export async function getInbox(): Promise<{ dms: ConversationView[]; groups: Con
   const partRows = (partsRes.data ?? []) as Array<{ conversation_id: string; user_id: string }>;
   const allMsgs = (lastMsgsRes.data ?? []) as DbMessage[];
 
-  // Latest message per conversation.
+  // Latest message per conversation (allMsgs is ordered newest-first).
   const lastByConv = new Map<string, DbMessage>();
+  // Count of unread messages per conversation: messages after last_read_at
+  // that were sent by someone else.
+  const unreadByConv = new Map<string, number>();
   for (const m of allMsgs) {
     if (!lastByConv.has(m.conversation_id)) lastByConv.set(m.conversation_id, m);
+    if (m.sender_id !== authUser.id) {
+      const lastRead = lastReadByConv.get(m.conversation_id) ?? null;
+      const isUnread = !lastRead || new Date(m.created_at) > new Date(lastRead);
+      if (isUnread) {
+        unreadByConv.set(m.conversation_id, (unreadByConv.get(m.conversation_id) ?? 0) + 1);
+      }
+    }
   }
 
   const participantsByConv = new Map<string, string[]>();
@@ -128,7 +145,7 @@ export async function getInbox(): Promise<{ dms: ConversationView[]; groups: Con
         kind: "dm",
         other_user: other,
         title: other ? formatName(other) : "Direct message",
-        unread_count: 0,
+        unread_count: unreadByConv.get(c.id) ?? 0,
         last_message: lastMessage,
       });
     } else if (c.type === "group") {
@@ -151,7 +168,7 @@ export async function getInbox(): Promise<{ dms: ConversationView[]; groups: Con
         kind: "group",
         group: groupView,
         title: g?.name ?? "Group chat",
-        unread_count: 0,
+        unread_count: unreadByConv.get(c.id) ?? 0,
         last_message: lastMessage,
       });
     }

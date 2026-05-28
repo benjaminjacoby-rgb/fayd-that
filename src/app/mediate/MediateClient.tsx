@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 import { Avatar } from "@/components/Avatar";
 import { Button } from "@/components/ui/Button";
 import { formatCents } from "@/lib/format";
@@ -29,12 +31,28 @@ export function MediateClient({
   mediations: MediationView[];
   totalEarnedCents: number;
 }) {
+  const router = useRouter();
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [ruledIds, setRuledIds] = useState<Set<string>>(new Set());
+  const [error, setError] = useState<string | null>(null);
 
-  async function rule(_id: string, _side: BetSide) {
-    setBusyId(_id);
-    // TODO: server action → submitRuling()
-    setTimeout(() => setBusyId(null), 600);
+  async function rule(id: string, side: BetSide, feeCents: number) {
+    setBusyId(id);
+    setError(null);
+    try {
+      const supabase = createClient();
+      const { error: dbErr } = await supabase
+        .from("mediations")
+        .update({ ruling: side, status: "ruling_submitted", fee_cents: feeCents })
+        .eq("id", id);
+      if (dbErr) throw dbErr;
+      setRuledIds((prev) => new Set([...prev, id]));
+      router.refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't submit ruling");
+    } finally {
+      setBusyId(null);
+    }
   }
 
   return (
@@ -87,11 +105,20 @@ export function MediateClient({
                 ))}
               </ul>
 
-              {m.status === "pending" ? (
-                <div className="grid grid-cols-2 gap-2 mt-4">
-                  <Button variant="yes" disabled={busyId === m.id} onClick={() => rule(m.id, "yes")}>Rule YES</Button>
-                  <Button variant="no"  disabled={busyId === m.id} onClick={() => rule(m.id, "no")}>Rule NO</Button>
-                </div>
+              {m.status === "pending" && !ruledIds.has(m.id) ? (
+                <>
+                  <div className="grid grid-cols-2 gap-2 mt-4">
+                    <Button variant="yes" disabled={busyId === m.id} onClick={() => rule(m.id, "yes", m.feeCents)}>
+                      {busyId === m.id ? "Submitting…" : "Rule YES"}
+                    </Button>
+                    <Button variant="no" disabled={busyId === m.id} onClick={() => rule(m.id, "no", m.feeCents)}>
+                      {busyId === m.id ? "Submitting…" : "Rule NO"}
+                    </Button>
+                  </div>
+                  {error && busyId === null ? (
+                    <p className="mt-2 text-xs text-no">{error}</p>
+                  ) : null}
+                </>
               ) : (
                 <div className="mt-3 text-xs text-text3 italic">Ruling submitted.</div>
               )}

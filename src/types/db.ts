@@ -269,8 +269,8 @@ export interface PostMeta {
 }
 
 // ────────────────────────────────────────────────
-// Messaging (Phase 4) — UI-only shapes; no Supabase tables yet.
-// TODO: add `conversations`, `conversation_members`, `messages` tables.
+// Messaging (Phase 4) — backed by conversations, conversation_participants,
+// and messages tables (see migrations 008 onwards).
 // ────────────────────────────────────────────────
 export type ConversationKind = "dm" | "group";
 export type ChatMessageKind = "text" | "bet";

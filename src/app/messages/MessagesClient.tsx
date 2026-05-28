@@ -27,6 +27,24 @@ export function MessagesClient({
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
+  // Refresh inbox when the user returns to the tab / navigates back so unread
+  // counts and last messages are up-to-date without a manual reload.
+  useEffect(() => {
+    if (USE_MOCK_DATA) return;
+    function refresh() {
+      router.refresh();
+    }
+    window.addEventListener("focus", refresh);
+    const onVis = () => {
+      if (!document.hidden) refresh();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [router]);
+
   const [pickerOpen, setPickerOpen] = useState(false);
 
   // Override unread_count to 0 for any conversation the user opened this session.

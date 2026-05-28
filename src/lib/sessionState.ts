@@ -126,6 +126,26 @@ export function addChatMessage(conversationId: string, msg: ChatMessageView) {
   notify();
 }
 
+/**
+ * After the server confirms a message, swap out the optimistic temp entry
+ * (which has a `m-new-…` id) for the real message from the DB so that if
+ * the user navigates away and back this session the conversation list stays
+ * deduplicated and consistent with what the server knows about.
+ */
+export function replaceChatMessage(
+  conversationId: string,
+  tempId: string,
+  realMsg: ChatMessageView,
+) {
+  const arr = state.extraMessagesByConversation[conversationId] ?? [];
+  const next = arr.map((m) => (m.id === tempId ? realMsg : m));
+  state.extraMessagesByConversation = {
+    ...state.extraMessagesByConversation,
+    [conversationId]: next,
+  };
+  notify();
+}
+
 export function registerSessionBet(bet: BetView) {
   state.sessionBetsById = { ...state.sessionBetsById, [bet.id]: bet };
   notify();

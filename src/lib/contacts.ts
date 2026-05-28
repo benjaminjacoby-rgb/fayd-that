@@ -52,39 +52,14 @@ export function getCachedMatches(): MatchedContact[] | null {
 /**
  * Async fetch of matched contacts. Swap this body for a real Capacitor
  * Contacts call + server-side phone matching when going to production.
+ *
+ * Until the Capacitor plugin is wired up, this returns an empty array so
+ * real users are never shown hardcoded fake data.
  */
 export async function fetchMatchedContacts(): Promise<MatchedContact[]> {
-  // Simulate the I/O the real plugin will incur.
-  await new Promise((r) => setTimeout(r, 250));
-  const matches: MatchedContact[] = [
-    {
-      id: "u-emma",
-      name: "Emma R.",
-      phone: "+1 (555) 555-0105",
-      user: { id: "u-emma", first_name: "Emma", last_name_initial: "R", username: "emmar", avatar_color: "yes" },
-    },
-    {
-      id: "u-liam",
-      name: "Liam C.",
-      phone: "+1 (555) 555-0106",
-      user: { id: "u-liam", first_name: "Liam", last_name_initial: "C", username: "liamc", avatar_color: "no" },
-    },
-    {
-      id: "u-aisha",
-      name: "Aisha B.",
-      phone: "+1 (555) 555-0107",
-      user: { id: "u-aisha", first_name: "Aisha", last_name_initial: "B", username: "aishab", avatar_color: "purple" },
-    },
-    {
-      id: "u-diego",
-      name: "Diego M.",
-      phone: "+1 (555) 555-0108",
-      user: { id: "u-diego", first_name: "Diego", last_name_initial: "M", username: "diegom", avatar_color: "orange" },
-    },
-  ];
-  cachedMatches = matches;
+  cachedMatches = [];
   notify();
-  return matches;
+  return [];
 }
 
 // ── React hook ──────────────────────────────────────────────────────────────

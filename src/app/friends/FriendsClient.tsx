@@ -416,7 +416,7 @@ function ContactsSection({
       ) : loading || matches === null ? (
         <p className="text-text3 text-xs italic px-1">Matching contacts…</p>
       ) : matches.length === 0 ? (
-        <p className="text-text3 text-xs italic px-1">No contacts on Fayd yet.</p>
+        <p className="text-text3 text-xs italic px-1">Contact sync coming soon.</p>
       ) : (
         <ul className="flex flex-col divide-y divide-bg3">
           {matches.map((m) => {

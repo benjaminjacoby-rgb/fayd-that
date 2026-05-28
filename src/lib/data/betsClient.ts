@@ -28,9 +28,8 @@ export interface CreateBetInput {
  * UI's BetRow shape, so we translate at the boundary (stake in dollars,
  * uppercase position, audience_type, end_date).
  *
- * Note: target_friend_ids and category / yes_probability have no column in
- * the current schema; they're dropped here. Persisting them would require a
- * follow-up migration.
+ * Note: target_friend_ids and yes_probability have no column in the current
+ * schema; they're dropped here. category is now persisted via migration 018.
  */
 export async function createBet(input: CreateBetInput): Promise<string> {
   const supabase = createClient();
@@ -51,6 +50,7 @@ export async function createBet(input: CreateBetInput): Promise<string> {
     .insert({
       poster_id: authUser.id,
       question: input.question,
+      category: input.category,
       poster_position: input.poster_side.toUpperCase(),
       stake_amount: input.stake_cents / 100,
       audience_type,

@@ -58,7 +58,11 @@ export default async function MediatePage() {
     });
   }
 
-  const totalEarnedCents = 0; // TODO: sum from complete mediations for this user
+  // Sum the mediator fee from all concluded/submitted mediations.
+  // `views` is already fetched above — no extra DB round-trip needed.
+  const totalEarnedCents = views
+    .filter((v) => v.status === "ruling_submitted" || v.status === "complete")
+    .reduce((sum, v) => sum + v.feeCents, 0);
 
   return (
     <AppShell title="Mediate">

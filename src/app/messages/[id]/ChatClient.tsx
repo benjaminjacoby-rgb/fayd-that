@@ -11,12 +11,13 @@ import { USE_MOCK_DATA } from "@/lib/config";
 import { fullName } from "@/lib/format";
 import { makeHandlers } from "@/app/HomeClient";
 import { createClient } from "@/lib/supabase/client";
-import { sendMessage, toChatMessageView } from "@/lib/data/messagesClient";
+import { markConversationReadRemote, sendMessage, toChatMessageView } from "@/lib/data/messagesClient";
 import {
   addChatMessage,
   getExtraMessages,
   getSessionBetById,
   markConversationRead,
+  replaceChatMessage,
   useSessionStore,
 } from "@/lib/sessionState";
 import type {
@@ -56,8 +57,12 @@ export function ChatClient({
   const handlers = makeHandlers({ currentUser, setBets, setToast });
 
   // Mark as read on first mount so the inbox + bottom-nav badges drop.
+  // Also persist to the server so the next inbox load shows the correct count.
   useEffect(() => {
     markConversationRead(conversation.id);
+    if (!USE_MOCK_DATA) {
+      markConversationReadRemote(conversation.id).catch(() => {});
+    }
   }, [conversation.id]);
 
   // Subscribe to the session store so cross-page additions (e.g. auto-posted
@@ -120,14 +125,10 @@ export function ChatClient({
               .eq("id", row.sender_id)
               .maybeSingle();
             if (u) {
-              const parts = (u.full_name ?? "").trim().split(/\s+/).filter(Boolean);
-              const first = parts[0] ?? null;
-              const last =
-                parts.length > 1 ? (parts[parts.length - 1][0] ?? "").toUpperCase() : null;
               senderLite = {
                 id: u.id,
-                first_name: first,
-                last_name_initial: last && last.length ? last : null,
+                first_name: u.full_name?.trim() ?? null,
+                last_name_initial: null,
                 username: u.username,
                 avatar_color: senderLite.avatar_color,
                 avatar_url: u.avatar_url ?? null,
@@ -193,8 +194,10 @@ export function ChatClient({
       return;
     }
 
-    // Optimistic local insert so the bubble shows immediately, then upsert
-    // with the server id once the insert returns.
+    // Optimistic local insert so the bubble shows immediately. Once the
+    // server insert returns we replace the temp entry with the real message
+    // (carrying the real UUID) so navigating away and back this session
+    // doesn't produce a duplicate.
     const tempId = `m-new-${Date.now()}`;
     addChatMessage(conversation.id, {
       id: tempId,
@@ -205,7 +208,8 @@ export function ChatClient({
       created_at: new Date().toISOString(),
     });
     try {
-      await sendMessage({ conversationId: conversation.id, content: text }, currentUser);
+      const realMsg = await sendMessage({ conversationId: conversation.id, content: text }, currentUser);
+      replaceChatMessage(conversation.id, tempId, realMsg);
     } catch (e) {
       setToast(e instanceof Error ? `Couldn't send · ${e.message}` : "Couldn't send message");
     }
@@ -237,7 +241,8 @@ export function ChatClient({
       created_at: new Date().toISOString(),
     });
     try {
-      await sendMessage({ conversationId: conversation.id, betId: bet.id }, currentUser);
+      const realMsg = await sendMessage({ conversationId: conversation.id, betId: bet.id }, currentUser);
+      replaceChatMessage(conversation.id, tempId, realMsg);
     } catch (e) {
       setToast(e instanceof Error ? `Couldn't share · ${e.message}` : "Couldn't share bet");
     }

@@ -20,12 +20,14 @@ export function NotificationBell({ count: initialCount = 0 }: { count?: number }
     function refresh() {
       getUnreadCount().then(setCount).catch(() => {});
     }
-    window.addEventListener("focus", refresh);
-    document.addEventListener("visibilitychange", () => {
+    function onVisibilityChange() {
       if (!document.hidden) refresh();
-    });
+    }
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, []);
 

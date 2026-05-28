@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { pickAvatarColor } from "@/lib/avatar";
 import type {
+  BetCategory,
   BetSide,
   BetStatus,
   BetView,
@@ -50,6 +51,7 @@ interface DbBet {
   id: string;
   poster_id: string | null;
   question: string;
+  category: string | null;
   poster_position: "YES" | "NO" | null;
   stake_amount: number;
   audience_type: "friends" | "group" | "specific_friends" | null;
@@ -125,10 +127,13 @@ export async function getFeedBets(): Promise<BetView[]> {
   const fillsByContract = groupBy(fills, (f) => f.contract_id);
   const contractsByBet = groupBy(contracts, (c) => c.bet_id);
 
-  // Reactions: pull all bet_reactions rows for the feed in one query, group by
-  // (bet_id, emoji), and tag the chips the current user contributed.
+  // Reactions + poll votes: pull in one query each, group by bet_id, and
+  // tag which the current user contributed.
   const { data: { user: authUser } } = await supabase.auth.getUser();
-  const reactionsByBet = await loadReactionsForBets(supabase, betIds, authUser?.id ?? null);
+  const [reactionsByBet, pollByBet] = await Promise.all([
+    loadReactionsForBets(supabase, betIds, authUser?.id ?? null),
+    loadPollVotesForBets(supabase, betIds, authUser?.id ?? null),
+  ]);
 
   const views = bets.map((bet) =>
     buildBetView(
@@ -138,6 +143,7 @@ export async function getFeedBets(): Promise<BetView[]> {
       usersById,
       groupsById,
       reactionsByBet.get(bet.id) ?? [],
+      pollByBet.get(bet.id) ?? { yes_votes: 0, no_votes: 0, my_vote: null },
     ),
   );
   // Fully-filled (locked) bets sink to the bottom; all others keep their
@@ -148,6 +154,36 @@ export async function getFeedBets(): Promise<BetView[]> {
     return aFilled - bFilled;
   });
   return views;
+}
+
+interface PollData {
+  yes_votes: number;
+  no_votes: number;
+  my_vote: BetSide | null;
+}
+
+async function loadPollVotesForBets(
+  supabase: SupabaseClient,
+  betIds: string[],
+  currentUserId: string | null,
+): Promise<Map<string, PollData>> {
+  const out = new Map<string, PollData>();
+  if (betIds.length === 0) return out;
+  const { data } = await supabase
+    .from("bet_poll_votes")
+    .select("bet_id, user_id, vote")
+    .in("bet_id", betIds);
+  const rows = (data ?? []) as Array<{ bet_id: string; user_id: string; vote: string }>;
+  for (const r of rows) {
+    const prev = out.get(r.bet_id) ?? { yes_votes: 0, no_votes: 0, my_vote: null };
+    if (r.vote === "yes") prev.yes_votes += 1;
+    if (r.vote === "no") prev.no_votes += 1;
+    if (currentUserId && r.user_id === currentUserId) {
+      prev.my_vote = r.vote as BetSide;
+    }
+    out.set(r.bet_id, prev);
+  }
+  return out;
 }
 
 async function loadReactionsForBets(
@@ -190,6 +226,7 @@ function buildBetView(
   usersById: Map<string, DbUser>,
   groupsById: Map<string, DbGroup>,
   reactions: Reaction[],
+  poll: PollData = { yes_votes: 0, no_votes: 0, my_vote: null },
 ): BetView {
   const posterUser = usersById.get(bet.poster_id ?? "");
   const creator = toUserLite(bet.poster_id, posterUser);
@@ -268,7 +305,7 @@ function buildBetView(
     original_filled_cents: originalFilledCents,
     reactions: reactions ?? [],
     comments: [],
-    poll: { yes_votes: 0, no_votes: 0, my_vote: null },
+    poll,
     sub_contracts: subContracts,
     mediator,
     end_at: bet.end_date,
@@ -280,7 +317,7 @@ function buildBetView(
     id: bet.id,
     creator_id: bet.poster_id ?? "",
     question: bet.question,
-    category: "other",
+    category: (bet.category ?? "other") as BetCategory,
     yes_probability: originalContracts[0] != null ? Math.round(originalContracts[0].odds) : 50,
     stake_cents: toCents(bet.stake_amount),
     expiry_at: bet.end_date ?? bet.created_at,

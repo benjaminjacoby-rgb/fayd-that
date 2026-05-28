@@ -20,6 +20,7 @@ import {
   postSubContract as postSubContractRemote,
 } from "@/lib/data/betsClient";
 import { toggleReaction } from "@/lib/data/reactionsClient";
+import { togglePollVote } from "@/lib/data/pollVotesClient";
 import type {
   BetSide,
   BetView,
@@ -255,22 +256,32 @@ export function makeHandlers({
     });
   }
 
+  function applyPollToggle(b: BetView, side: BetSide): BetView {
+    const meta = b.post_meta!;
+    const prev = meta.poll;
+    let { yes_votes, no_votes, my_vote } = prev;
+    // Undo previous vote first.
+    if (my_vote === "yes") yes_votes--;
+    if (my_vote === "no") no_votes--;
+    // Toggle: same side clears the vote.
+    if (my_vote === side) {
+      my_vote = null;
+    } else {
+      my_vote = side;
+      if (side === "yes") yes_votes++; else no_votes++;
+    }
+    return { ...b, post_meta: { ...meta, poll: { yes_votes, no_votes, my_vote } } };
+  }
+
   function onVote(bet: BetView, side: BetSide) {
-    updateBet(bet.id, (b) => {
-      const meta = b.post_meta!;
-      const prev = meta.poll;
-      let { yes_votes, no_votes, my_vote } = prev;
-      // Undo previous vote if any.
-      if (my_vote === "yes") yes_votes--;
-      if (my_vote === "no") no_votes--;
-      // Toggle: same side again clears the vote.
-      if (my_vote === side) {
-        my_vote = null;
-      } else {
-        my_vote = side;
-        if (side === "yes") yes_votes++; else no_votes++;
-      }
-      return { ...b, post_meta: { ...meta, poll: { yes_votes, no_votes, my_vote } } };
+    // Optimistic update.
+    updateBet(bet.id, (b) => applyPollToggle(b, side));
+    if (USE_MOCK_DATA) return;
+    // Persist to DB; roll back on failure.
+    togglePollVote(bet.id, side).catch(() => {
+      // Roll back by re-applying the same toggle (idempotent inverse).
+      updateBet(bet.id, (b) => applyPollToggle(b, side));
+      setToast("Couldn't save vote");
     });
   }
 
