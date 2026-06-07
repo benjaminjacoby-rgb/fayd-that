@@ -113,7 +113,7 @@ export function FaydThatSheet({ bet, subContract, open, onClose, onConfirm }: Pr
             </span>
           </div>
           <div className="text-[11px] text-text3 mt-1">
-            You stake {formatCents(amount)} · counter-party stakes {formatCents(yourWinCents)} (less Fayd fee).
+            You stake {formatCents(amount)} · counter-party stakes {formatCents(yourWinCents)}.
           </div>
         </div>
 

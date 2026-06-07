@@ -68,13 +68,12 @@ export function fullName(u: { first_name: string | null; last_name_initial: stri
 /**
  * Computes per-side payouts for a fixed-odds two-sided bet.
  * Given a YES probability p and a stake S the YES side puts up, the NO side
- * stakes S * p/(1-p) so expected value is zero. We surface "you win $X" as the
- * counterparty stake (the amount you'd take home on a win, less the Fayd fee).
+ * stakes S * p/(1-p) so expected value is zero. "You win $X" is the full
+ * counterparty stake — no fees deducted.
  */
 export function payoutPreview(
   stakeCents: number,
   yesProbability: number,
-  platformFeeBps = 500,
 ): { ifYesWinsCents: number; ifNoWinsCents: number; potCents: number } {
   const yesFrac = yesProbability / 100;
   const noFrac = 1 - yesFrac;
@@ -83,11 +82,9 @@ export function payoutPreview(
   }
   const noStake = Math.round((stakeCents * yesFrac) / noFrac);
   const pot = stakeCents + noStake;
-  const feeYes = Math.round((noStake * platformFeeBps) / 10_000);
-  const feeNo = Math.round((stakeCents * platformFeeBps) / 10_000);
   return {
-    ifYesWinsCents: noStake - feeYes,
-    ifNoWinsCents: stakeCents - feeNo,
+    ifYesWinsCents: noStake,
+    ifNoWinsCents: stakeCents,
     potCents: pot,
   };
 }

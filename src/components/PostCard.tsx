@@ -316,19 +316,6 @@ export function PostCard({
         </div>
       ) : null}
 
-      {/* ── Mediator Needed CTA ─────────────────────────────────────────── */}
-      {canAcceptMediator ? (
-        <div className="px-4 pb-3">
-          <button
-            onClick={() => setShowAcceptMediator(true)}
-            className="w-full rounded-input border-2 border-gold bg-gold/10 text-gold font-bold text-sm py-3 flex items-center justify-center gap-2 hover:bg-gold/20 active:scale-[0.97] transition"
-          >
-            <ScalesIcon className="w-4 h-4 text-gold shrink-0" />
-            Mediator Needed · Volunteer
-          </button>
-        </div>
-      ) : null}
-
       {/* ── Actions ────────────────────────────────────────────────────── */}
       <div className="px-4 pb-3 flex flex-col gap-2">
         {fullyFilled || expired ? (
@@ -390,6 +377,19 @@ export function PostCard({
               👎 NO · {meta.poll.no_votes}
             </button>
           </div>
+        </div>
+      ) : null}
+
+      {/* ── Mediator Needed CTA ─────────────────────────────────────────── */}
+      {canAcceptMediator ? (
+        <div className="px-4 pb-3">
+          <button
+            onClick={() => setShowAcceptMediator(true)}
+            className="w-full rounded-input border-2 border-gold bg-gold/10 text-gold font-bold text-sm py-3 flex items-center justify-center gap-2 hover:bg-gold/20 active:scale-[0.97] transition"
+          >
+            <ScalesIcon className="w-4 h-4 text-gold shrink-0" />
+            Mediator Needed · Volunteer
+          </button>
         </div>
       ) : null}
 

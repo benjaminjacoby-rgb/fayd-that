@@ -68,7 +68,10 @@ export function CreateBetClient({
       ? (qCategory as BetCategory)
       : "social";
   const qYesProb = Number(searchParams.get("yes_probability"));
-  const initialYesProb =
+  // Duplicate links carry the stored yes_probability. Initial posterSide is
+  // "yes" so the slider (which represents the poster's odds in their chosen
+  // side) starts equal to the stored yes_probability.
+  const initialPosterOdds =
     Number.isFinite(qYesProb) && qYesProb >= MIN_PROBABILITY && qYesProb <= MAX_PROBABILITY
       ? qYesProb
       : 50;
@@ -79,9 +82,16 @@ export function CreateBetClient({
 
   const [question, setQuestion] = useState(initialQuestion);
   const [category, setCategory] = useState<BetCategory>(initialCategory);
-  const [yesProbability, setYesProbability] = useState(initialYesProb);
+  // Slider value = the poster's confidence in their chosen side (0–100).
+  // Stored on the bet as `yes_probability` after converting based on posterSide.
+  const [posterOdds, setPosterOdds] = useState(initialPosterOdds);
   const [stakeTier, setStakeTier] = useState<StakeTierCents>(initialStake);
   const [posterSide, setPosterSide] = useState<BetSide>("yes");
+
+  // Convert the slider's poster-odds value into the YES-side probability that
+  // the rest of the system (PostCard, settle_bet, etc.) treats as canonical.
+  const yesProbability =
+    posterSide === "yes" ? posterOdds : 100 - posterOdds;
   const [scope, setScope] = useState<BetScope>("friends");
   const [groupId, setGroupId] = useState<string | null>(null);
   const [targetFriendIds, setTargetFriendIds] = useState<string[]>([]);
@@ -103,16 +113,13 @@ export function CreateBetClient({
   const stakeCents = stakeTier;
 
   // Payout if correct = your stake + the counterparty stake matched against you.
-  // No platform fee.
   const payoutIfCorrectCents = useMemo(() => {
-    const p = yesProbability / 100;
-    // Probability the poster's side wins.
-    const winProb = posterSide === "yes" ? p : 1 - p;
+    const winProb = posterOdds / 100;
     if (winProb <= 0 || winProb >= 1) return 0;
     // Fair odds: counterparty stakes stake*(1-winProb)/winProb so EV=0.
     // Payout if poster wins = own stake + counterparty stake = stake / winProb.
     return Math.round(stakeCents / winProb);
-  }, [stakeCents, yesProbability, posterSide]);
+  }, [stakeCents, posterOdds]);
 
   const canSubmit =
     question.trim().length > 4 &&
@@ -276,13 +283,17 @@ export function CreateBetClient({
         </div>
       </Section>
 
-      <Section label={`Probability — YES ${yesProbability}% · NO ${100 - yesProbability}%`}>
+      <Section
+        label={`Your odds — ${posterSide.toUpperCase()} ${posterOdds}% · ${
+          posterSide === "yes" ? "NO" : "YES"
+        } ${100 - posterOdds}%`}
+      >
         <input
           type="range"
           min={MIN_PROBABILITY}
           max={MAX_PROBABILITY}
-          value={yesProbability}
-          onChange={(e) => setYesProbability(parseInt(e.target.value, 10))}
+          value={posterOdds}
+          onChange={(e) => setPosterOdds(parseInt(e.target.value, 10))}
           className="fayd-slider"
         />
       </Section>

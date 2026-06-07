@@ -442,6 +442,10 @@ function PostRow({
   const filledPct = bet.stake_cents > 0 ? Math.round((filled / bet.stake_cents) * 100) : 0;
   const fillCount = (bet.contracts ?? []).filter((c) => c.negotiation_id === null).length;
   const isClosed = bet.status === "closed";
+  const posterSide = bet.post_meta?.poster_side ?? "yes";
+  const posterOdds =
+    posterSide === "yes" ? bet.yes_probability : 100 - bet.yes_probability;
+  const posterSideClass = posterSide === "yes" ? "text-yes" : "text-no";
 
   const mediatorId =
     bet.post_meta?.mediator?.mode === "accepted"
@@ -491,6 +495,20 @@ function PostRow({
         ) : null}
       </div>
       <p className="font-medium leading-snug">{bet.question}</p>
+
+      <div className="mt-2 flex items-center gap-1.5 text-xs">
+        <span className="text-text3 uppercase tracking-wide text-[10px] font-semibold">
+          Your side
+        </span>
+        <span
+          className={`font-bold uppercase rounded-pill px-1.5 py-px text-[10px] ${
+            posterSide === "yes" ? "bg-yes/15 text-yes" : "bg-no/15 text-no"
+          }`}
+        >
+          {posterSide}
+        </span>
+        <span className={`font-mono ${posterSideClass}`}>{posterOdds}%</span>
+      </div>
 
       {resolved && bet.winning_side ? (
         <WinnerBanner bet={bet} />
@@ -577,7 +595,7 @@ function HistoryCard({
   item: HistoryItem;
   currentUserId: string;
 }) {
-  const { bet, userSide, isPost } = item;
+  const { bet, userSide, isPost, userOdds } = item;
   const ws = bet.winning_side; // "YES" | "NO" | null
   const won = ws ? ws.toLowerCase() === userSide : null;
   const payout = computePayoutCents(item);
@@ -643,7 +661,7 @@ function HistoryCard({
                 : "bg-no/10 text-no/70"
             }`}
           >
-            You: {userSide.toUpperCase()}
+            You: {userSide.toUpperCase()} · {userOdds}%
           </span>
         </div>
 

@@ -46,6 +46,6 @@ export async function holdStakeForBet(opts: {
 
 export async function releaseEscrowToWinners(_betId: string): Promise<void> {
   // TODO: walk bet_participants, credit winners' wallet_balance_cents with their
-  // share of the pot minus platform + mediator fees. In live mode, transfer
-  // funds out of platform escrow.
+  // share of the pot (less the mediator's cut, when applicable). In live mode,
+  // transfer funds out of platform escrow.
 }
