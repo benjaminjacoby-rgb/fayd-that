@@ -248,38 +248,6 @@ export function PostCard({
         </div>
       </div>
 
-      {/* ── Mediator chip + concluded/expired/expiry/filled badge row ──── */}
-      {(mediatorState || concluded || isExpiredByDate || expiresAt || allContractsFilled) ? (
-        <div className="px-4 pb-2 flex items-center gap-2 flex-wrap">
-          {concluded ? (
-            <span className="text-[10px] font-bold uppercase tracking-wide bg-bg3 text-text2 rounded-pill px-2 py-0.5">
-              Concluded
-            </span>
-          ) : null}
-          {allContractsFilled && !concluded ? (
-            <span className="text-[10px] font-bold uppercase tracking-wide bg-yes/15 text-yes rounded-pill px-2 py-0.5">
-              Fully filled
-            </span>
-          ) : null}
-          {isExpiredByDate ? (
-            <span className="text-[10px] font-bold uppercase tracking-wide bg-no/15 text-no rounded-pill px-2 py-0.5">
-              Expired
-            </span>
-          ) : expiresAt ? (
-            <span className="text-[10px] font-medium uppercase tracking-wide bg-bg3 text-text3 rounded-pill px-2 py-0.5">
-              Expires {formatExpiresDate(expiresAt)}
-            </span>
-          ) : null}
-          {mediatorState && !canAcceptMediator ? (
-            <MediatorChip
-              state={mediatorState}
-              canAccept={false}
-              onAccept={() => setShowAcceptMediator(true)}
-            />
-          ) : null}
-        </div>
-      ) : null}
-
       {/* ── Group tag (amber) ──────────────────────────────────────────── */}
       {groupName ? (
         <div className="px-4 pb-3">
@@ -390,6 +358,38 @@ export function PostCard({
             <ScalesIcon className="w-4 h-4 text-gold shrink-0" />
             Mediator Needed · Volunteer
           </button>
+        </div>
+      ) : null}
+
+      {/* ── Mediator chip + concluded/expired/expiry/filled badge row ──── */}
+      {(mediatorState || concluded || isExpiredByDate || expiresAt || allContractsFilled) ? (
+        <div className="px-4 pb-2 flex items-center gap-2 flex-wrap">
+          {concluded ? (
+            <span className="text-[10px] font-bold uppercase tracking-wide bg-bg3 text-text2 rounded-pill px-2 py-0.5">
+              Concluded
+            </span>
+          ) : null}
+          {allContractsFilled && !concluded ? (
+            <span className="text-[10px] font-bold uppercase tracking-wide bg-yes/15 text-yes rounded-pill px-2 py-0.5">
+              Fully filled
+            </span>
+          ) : null}
+          {isExpiredByDate ? (
+            <span className="text-[10px] font-bold uppercase tracking-wide bg-no/15 text-no rounded-pill px-2 py-0.5">
+              Expired
+            </span>
+          ) : expiresAt ? (
+            <span className="text-[10px] font-medium uppercase tracking-wide bg-bg3 text-text3 rounded-pill px-2 py-0.5">
+              Expires {formatExpiresDate(expiresAt)}
+            </span>
+          ) : null}
+          {mediatorState && !canAcceptMediator ? (
+            <MediatorChip
+              state={mediatorState}
+              canAccept={false}
+              onAccept={() => setShowAcceptMediator(true)}
+            />
+          ) : null}
         </div>
       ) : null}
 

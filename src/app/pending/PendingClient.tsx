@@ -109,6 +109,7 @@ export function PendingClient({
   const [mounted, setMounted] = useState(false);
   const [tab, setTab] = useState<Tab>("active");
   const [historySearch, setHistorySearch] = useState("");
+  const [activeSearch, setActiveSearch] = useState("");
   useEffect(() => setMounted(true), []);
   const onSettled = () => router.refresh();
 
@@ -157,6 +158,23 @@ export function PendingClient({
 
   const hasActive = actives.length > 0 || posts.length > 0;
   const hasHistory = resolvedActives.length > 0 || resolvedPosts.length > 0;
+
+  // Active-tab search — mirrors the history search behavior (case-insensitive
+  // match against the bet's question + poster name/username).
+  const activeQuery = activeSearch.toLowerCase().trim();
+  const matchesActiveQuery = (bet: BetView): boolean => {
+    if (!activeQuery) return true;
+    if (bet.question.toLowerCase().includes(activeQuery)) return true;
+    const name = fullName(bet.creator).toLowerCase();
+    const username = (bet.creator.username ?? "").toLowerCase();
+    return name.includes(activeQuery) || username.includes(activeQuery);
+  };
+  const filteredPosts = activeQuery
+    ? posts.filter((p) => matchesActiveQuery(p.bet))
+    : posts;
+  const filteredActives = activeQuery
+    ? actives.filter((a) => matchesActiveQuery(a.bet))
+    : actives;
 
   // Unified, sorted history list for the History tab.
   const historyItems: HistoryItem[] = [
@@ -212,48 +230,87 @@ export function PendingClient({
       </div>
 
       {tab === "active" ? (
-        <div className="px-4 pt-4 pb-6 flex flex-col gap-6">
-          <section>
-            <SectionHeader title="My Posts" count={posts.length} />
-            {posts.length === 0 ? (
-              <p className="text-text3 text-sm italic mt-2">
-                Bets you create will show up here.
-              </p>
-            ) : (
-              <ul className="flex flex-col gap-3 mt-3">
-                {posts.map((p) => (
-                  <li key={p.bet.id}>
-                    <PostRow
-                      row={p}
-                      currentUserId={currentUser.id}
-                      onSettled={onSettled}
-                      onClose={async () => {
-                        await closeBet(p.bet.id);
-                        router.refresh();
-                      }}
-                    />
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
+        <div className="px-4 pt-3 pb-6 flex flex-col gap-4">
+          {/* Search bar */}
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text3 pointer-events-none text-sm">
+              🔍
+            </span>
+            <input
+              type="text"
+              value={activeSearch}
+              onChange={(e) => setActiveSearch(e.target.value)}
+              placeholder="Search by question or poster…"
+              className="w-full bg-bg3 rounded-pill pl-9 pr-4 py-2.5 text-sm text-text placeholder:text-text3 focus:outline-none focus:ring-2 focus:ring-yes/30"
+            />
+            {activeSearch ? (
+              <button
+                onClick={() => setActiveSearch("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-text3 hover:text-text2 text-lg leading-none"
+                aria-label="Clear search"
+              >
+                ×
+              </button>
+            ) : null}
+          </div>
 
-          <section>
-            <SectionHeader title="Active" count={actives.length} />
-            {actives.length === 0 ? (
-              <p className="text-text3 text-sm italic mt-2">
-                Bets you've locked in this session will show up here.
-              </p>
-            ) : (
-              <ul className="flex flex-col gap-3 mt-3">
-                {actives.map((a) => (
-                  <li key={a.id}>
-                    <ActiveRow row={a} currentUserId={currentUser.id} onSettled={onSettled} />
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
+          {/* Results */}
+          {activeQuery && filteredActives.length === 0 && filteredPosts.length === 0 ? (
+            <p className="text-text3 text-sm italic pt-4 text-center">
+              No bets match "{activeSearch}"
+            </p>
+          ) : (
+            <div className="flex flex-col gap-6">
+              {/* Show the "In Progress" section unless filtering hides every row.
+                  When the search box is empty we keep the section visible so the
+                  empty-state copy still has a home. */}
+              {!activeQuery || filteredActives.length > 0 ? (
+                <section>
+                  <SectionHeader title="In Progress" count={filteredActives.length} />
+                  {filteredActives.length === 0 ? (
+                    <p className="text-text3 text-sm italic mt-2">
+                      Bets you've locked in this session will show up here.
+                    </p>
+                  ) : (
+                    <ul className="flex flex-col gap-3 mt-3">
+                      {filteredActives.map((a) => (
+                        <li key={a.id}>
+                          <ActiveRow row={a} currentUserId={currentUser.id} onSettled={onSettled} />
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              ) : null}
+
+              {!activeQuery || filteredPosts.length > 0 ? (
+                <section>
+                  <SectionHeader title="My Posts" count={filteredPosts.length} />
+                  {filteredPosts.length === 0 ? (
+                    <p className="text-text3 text-sm italic mt-2">
+                      Bets you create will show up here.
+                    </p>
+                  ) : (
+                    <ul className="flex flex-col gap-3 mt-3">
+                      {filteredPosts.map((p) => (
+                        <li key={p.bet.id}>
+                          <PostRow
+                            row={p}
+                            currentUserId={currentUser.id}
+                            onSettled={onSettled}
+                            onClose={async () => {
+                              await closeBet(p.bet.id);
+                              router.refresh();
+                            }}
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              ) : null}
+            </div>
+          )}
         </div>
       ) : (
         <div className="px-4 pt-3 pb-6 flex flex-col gap-4">

@@ -3,11 +3,10 @@
 import { createClient } from "@/lib/supabase/client";
 import { creditWalletCents, deductWalletCents } from "@/lib/data/walletClient";
 import { insertNotification } from "@/lib/data/notificationsClient";
-import type { BetCategory, BetScope, BetSide } from "@/types/db";
+import type { BetScope, BetSide } from "@/types/db";
 
 export interface CreateBetInput {
   question: string;
-  category: BetCategory;
   yes_probability: number;
   stake_cents: number;
   expiry_at: string;
@@ -29,7 +28,9 @@ export interface CreateBetInput {
  * uppercase position, audience_type, end_date).
  *
  * Note: target_friend_ids and yes_probability have no column in the current
- * schema; they're dropped here. category is now persisted via migration 018.
+ * schema; they're dropped here. The category column was deprecated from the
+ * composer in the Social Composer rewrite — the DB column keeps its NOT NULL
+ * default of 'other' for legacy compatibility.
  */
 export async function createBet(input: CreateBetInput): Promise<string> {
   const supabase = createClient();
@@ -50,7 +51,6 @@ export async function createBet(input: CreateBetInput): Promise<string> {
     .insert({
       poster_id: authUser.id,
       question: input.question,
-      category: input.category,
       poster_position: input.poster_side.toUpperCase(),
       stake_amount: input.stake_cents / 100,
       audience_type,
