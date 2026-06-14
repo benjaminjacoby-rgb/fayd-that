@@ -18,14 +18,13 @@ import type {
   UserRow,
 } from "@/types/db";
 
-// Stake tiers for the Social Composer ($5/$10/$25/$50/$100).
-const STAKE_OPTIONS_CENTS = [500, 1000, 2500, 5000, 10000] as const;
+// Quick-pick stake shortcuts ($5/$10/$25/$50/$100) that autofill the input.
+const STAKE_QUICK_PICKS_CENTS = [500, 1000, 2500, 5000, 10000] as const;
 const DEFAULT_STAKE_CENTS = 1000;
 
 type Panel = "audience" | "mediator" | "expiry" | null;
 type ScopeKind = BetScope; // "friends" | "group"
 type MediatorChoice = "self" | "request";
-type ExpiryKind = "none" | "24h" | "3d" | "1w" | "custom";
 
 interface Props {
   walletCents: number;
@@ -46,48 +45,57 @@ export function CreateBetClient({
 
   // ── Composer state ─────────────────────────────────────────────────────
   const [question, setQuestion] = useState("");
-  // Poster's confidence in their chosen side, 5–95.
   const [posterOdds, setPosterOdds] = useState(50);
   const [posterSide, setPosterSide] = useState<BetSide>("yes");
-  const [stakeCents, setStakeCents] = useState<number>(DEFAULT_STAKE_CENTS);
+  const [stakeInput, setStakeInput] = useState<string>(
+    (DEFAULT_STAKE_CENTS / 100).toString(),
+  );
 
   // ── Audience state ─────────────────────────────────────────────────────
-  // Default: "All Friends" — scope=friends, no targetIds means everyone.
   const [scope, setScope] = useState<ScopeKind>("friends");
-  // null = all friends selected; non-null Set = explicit subset.
   const [selectedFriendIds, setSelectedFriendIds] = useState<Set<string> | null>(
     null,
   );
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const [audienceTouched, setAudienceTouched] = useState(false);
 
   // ── Mediator state ─────────────────────────────────────────────────────
   const [mediatorChoice, setMediatorChoice] = useState<MediatorChoice>("self");
   const [mediatorFriendId, setMediatorFriendId] = useState<string | null>(null);
+  // True when the user picks "Open request" — anyone in the audience may volunteer.
+  const [mediatorOpen, setMediatorOpen] = useState(false);
+  const [mediatorTouched, setMediatorTouched] = useState(false);
 
   // ── Expiry state ───────────────────────────────────────────────────────
-  const [expiryKind, setExpiryKind] = useState<ExpiryKind>("none");
-  // YYYY-MM-DDTHH:MM, populated when expiryKind === "custom".
-  const [customExpiry, setCustomExpiry] = useState<string>("");
+  // Empty strings = "No expiry". The header label and submit validation derive
+  // from these. Time defaults to 23:59 if a date is set but no time is entered.
+  const [expiryDate, setExpiryDate] = useState<string>(""); // "YYYY-MM-DD"
+  const [expiryTime, setExpiryTime] = useState<string>(""); // "HH:MM"
+  const [expiryError, setExpiryError] = useState<string | null>(null);
 
   const [openPanel, setOpenPanel] = useState<Panel>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // ── Derived values ─────────────────────────────────────────────────────
-  // YES probability (canonical). The slider tracks the poster's odds in their
-  // chosen side; we convert at write time so the rest of the system (PostCard,
-  // settle_bet) keeps treating `yes_probability` as YES's chance of winning.
+  const stakeCents = useMemo(() => {
+    const n = parseFloat(stakeInput);
+    if (!isFinite(n) || n < 0) return 0;
+    return Math.round(n * 100);
+  }, [stakeInput]);
+
   const yesProbability =
     posterSide === "yes" ? posterOdds : 100 - posterOdds;
   const yesPercent = yesProbability;
   const noPercent = 100 - yesProbability;
 
-  // Payout if correct = stake + counter-party stake. No fees deducted.
   const payoutIfCorrectCents = useMemo(() => {
     const p = posterOdds / 100;
     if (p <= 0 || p >= 1) return 0;
     return Math.round(stakeCents / p);
   }, [posterOdds, stakeCents]);
+
+  const overBalance = stakeCents > walletCents;
 
   // ── Audience helpers ───────────────────────────────────────────────────
   const targetFriendIds: string[] =
@@ -98,14 +106,15 @@ export function CreateBetClient({
     () => groups.find((g) => g.id === selectedGroupId) ?? null,
     [groups, selectedGroupId],
   );
-  const audienceLabel = (() => {
+  const audienceChipLabel = (() => {
+    if (!audienceTouched) return "Select audience";
     if (scope === "group") {
-      return selectedGroup ? `👥 ${selectedGroup.name}` : "👥 Pick a group";
+      return selectedGroup ? selectedGroup.name : "Pick a group";
     }
-    if (!selectedFriendIds) return "👥 All Friends";
+    if (!selectedFriendIds) return "All Friends";
     const n = selectedFriendIds.size;
-    if (n === 0) return "👥 Pick friends";
-    return `👥 ${n} ${n === 1 ? "friend" : "friends"}`;
+    if (n === 0) return "Pick friends";
+    return `${n} ${n === 1 ? "friend" : "friends"}`;
   })();
 
   // ── Mediator helpers ───────────────────────────────────────────────────
@@ -113,45 +122,30 @@ export function CreateBetClient({
     () => friends.find((f) => f.id === mediatorFriendId) ?? null,
     [friends, mediatorFriendId],
   );
-  const mediatorLabel =
-    mediatorChoice === "self"
-      ? "⚖️ Self-mediate"
-      : mediatorFriend
-        ? `⚖️ ${fullName(mediatorFriend)}`
-        : "⚖️ Request mediator";
+  const mediatorChipLabel = (() => {
+    if (!mediatorTouched) return "Choose mediator";
+    if (mediatorChoice === "self") return "Self-mediate";
+    if (mediatorOpen) return "Open request";
+    return mediatorFriend ? fullName(mediatorFriend) : "Request mediator";
+  })();
 
   // ── Expiry helpers ─────────────────────────────────────────────────────
-  function resolveExpiresAt(): string | null {
-    const now = Date.now();
-    switch (expiryKind) {
-      case "24h":
-        return new Date(now + 24 * 3600_000).toISOString();
-      case "3d":
-        return new Date(now + 3 * 24 * 3600_000).toISOString();
-      case "1w":
-        return new Date(now + 7 * 24 * 3600_000).toISOString();
-      case "custom":
-        if (!customExpiry) return null;
-        return new Date(customExpiry).toISOString();
-      case "none":
-      default:
-        return null;
-    }
+  const noExpiry = expiryDate === "" && expiryTime === "";
+  // Builds a local Date from the date/time inputs. Time defaults to 23:59 when
+  // the user picks a date but not a time. Returns null when no date is set.
+  function expiryDate_(): Date | null {
+    if (!expiryDate) return null;
+    const t = expiryTime || "23:59";
+    const d = new Date(`${expiryDate}T${t}`);
+    return Number.isNaN(d.getTime()) ? null : d;
   }
-  const expiryLabel = (() => {
-    switch (expiryKind) {
-      case "24h":
-        return "⏱ 24 hours";
-      case "3d":
-        return "⏱ 3 days";
-      case "1w":
-        return "⏱ 1 week";
-      case "custom":
-        return customExpiry ? `⏱ ${formatLocal(customExpiry)}` : "⏱ Pick date & time";
-      case "none":
-      default:
-        return "⏱ No expiry";
-    }
+  function resolveExpiresAt(): string | null {
+    const d = expiryDate_();
+    return d ? d.toISOString() : null;
+  }
+  const expiryButtonLabel = (() => {
+    const d = expiryDate_();
+    return d ? formatLocalDate(d) : "Set expiry";
   })();
 
   // ── Submit ─────────────────────────────────────────────────────────────
@@ -160,16 +154,15 @@ export function CreateBetClient({
     stakeCents > 0 &&
     stakeCents <= walletCents &&
     (scope !== "group" || !!selectedGroupId) &&
-    (mediatorChoice !== "request" || !!mediatorFriendId);
+    (mediatorChoice !== "request" || !!mediatorFriendId || mediatorOpen);
 
   function togglePanel(p: Exclude<Panel, null>) {
     setOpenPanel((cur) => (cur === p ? null : p));
   }
 
   function toggleFriend(id: string) {
+    setAudienceTouched(true);
     setSelectedFriendIds((cur) => {
-      // Switching from "all" into explicit subset starts from full set minus
-      // the toggled friend, matching the user's natural mental model.
       if (cur === null) {
         const all = new Set(friends.map((f) => f.id));
         all.delete(id);
@@ -182,12 +175,23 @@ export function CreateBetClient({
     });
   }
   function selectAllFriends() {
+    setAudienceTouched(true);
     setSelectedFriendIds(null);
   }
 
   async function submit() {
     if (!canSubmit) return;
     setError(null);
+    setExpiryError(null);
+    const expiryD = expiryDate_();
+    if (expiryD) {
+      const minMs = Date.now() + 5 * 60_000;
+      if (expiryD.getTime() < minMs) {
+        setExpiryError("Expiry must be at least 5 minutes in the future.");
+        setOpenPanel("expiry");
+        return;
+      }
+    }
     setBusy(true);
     try {
       const expiry_at = new Date(Date.now() + 24 * 3600_000).toISOString();
@@ -319,7 +323,7 @@ export function CreateBetClient({
   return (
     <div className="bg-bg flex flex-col h-screen w-full">
       {/* ── Header ────────────────────────────────────────────────────── */}
-      <header className="flex items-center px-4 h-12 shrink-0">
+      <header className="relative flex items-center px-4 h-12 shrink-0">
         <button
           type="button"
           onClick={() => router.back()}
@@ -327,12 +331,51 @@ export function CreateBetClient({
         >
           Cancel
         </button>
-        <h1 className="flex-1 text-center text-base font-semibold tracking-tight">
-          New Bet
-        </h1>
-        {/* Right-side spacer keeps the title centered. */}
-        <div className="w-[52px]" aria-hidden />
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => togglePanel("expiry")}
+            className={`rounded-pill bg-bg2 hover:bg-bg3 text-text2 text-xs font-medium px-2.5 py-1.5 transition whitespace-nowrap ${
+              openPanel === "expiry" ? "ring-1 ring-yes/40" : ""
+            }`}
+          >
+            {expiryButtonLabel}
+          </button>
+          <button
+            type="button"
+            disabled={!canSubmit || busy}
+            onClick={submit}
+            className="rounded-pill bg-yes text-bg font-bold text-xs px-4 py-1.5 hover:brightness-110 active:scale-[0.98] transition disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {busy ? "Posting…" : "Post"}
+          </button>
+        </div>
       </header>
+
+      {/* Expiry dropdown lives directly below the header. */}
+      {openPanel === "expiry" ? (
+        <div className="shrink-0 px-4 pb-2">
+          <ExpiryPanel
+            date={expiryDate}
+            time={expiryTime}
+            noExpiry={noExpiry}
+            error={expiryError}
+            setDate={(v) => {
+              setExpiryDate(v);
+              setExpiryError(null);
+            }}
+            setTime={(v) => {
+              setExpiryTime(v);
+              setExpiryError(null);
+            }}
+            clear={() => {
+              setExpiryDate("");
+              setExpiryTime("");
+              setExpiryError(null);
+            }}
+          />
+        </div>
+      ) : null}
 
       {/* ── Scrollable composer body ─────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto px-4 pt-4 pb-6">
@@ -354,9 +397,9 @@ export function CreateBetClient({
           />
         </div>
 
-        {/* Your confidence + YES/NO toggle */}
+        {/* My position + YES/NO toggle */}
         <div className="mt-6 flex items-center justify-between">
-          <span className="text-sm font-medium text-text2">Your confidence</span>
+          <span className="text-sm font-medium text-text2">My position:</span>
           <div className="inline-flex bg-bg2 rounded-pill p-1">
             <SideToggleButton
               label="YES"
@@ -387,126 +430,131 @@ export function CreateBetClient({
             value={posterSide === "yes" ? yesPercent : noPercent}
             onChange={(e) => {
               const v = parseInt(e.target.value, 10);
-              // The slider always represents the LEFT (YES) side's percentage
-              // visually; convert into the poster's odds for their chosen side.
               setPosterOdds(posterSide === "yes" ? v : 100 - v);
             }}
             className="fayd-slider w-full"
           />
         </div>
 
-        {/* Stake */}
+        {/* Stake — text input + quick picks */}
         <div className="mt-6">
-          <div className="text-xs uppercase tracking-wide text-text3 font-semibold mb-2">
-            Stake
+          <div className="flex items-baseline justify-between mb-2">
+            <div className="text-xs uppercase tracking-wide text-text3 font-semibold">
+              Stake
+            </div>
+            <div className="text-xs text-text3">
+              Wallet: {formatCents(walletCents)}
+            </div>
           </div>
-          <div className="flex gap-2 flex-wrap">
-            {STAKE_OPTIONS_CENTS.map((tier) => {
-              const active = tier === stakeCents;
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text2 text-base font-semibold pointer-events-none">
+              $
+            </span>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={stakeInput}
+              onChange={(e) => {
+                const v = e.target.value.replace(/[^0-9.]/g, "");
+                setStakeInput(v);
+              }}
+              placeholder="0"
+              className={`w-full bg-bg2 rounded-input pl-7 pr-3 py-2.5 text-base text-text outline-none focus:ring-2 ${
+                overBalance ? "ring-2 ring-no/60" : "focus:ring-yes/30"
+              }`}
+            />
+          </div>
+          <div className="flex gap-2 flex-wrap mt-2">
+            {STAKE_QUICK_PICKS_CENTS.map((tier) => {
               const disabled = tier > walletCents;
               return (
                 <button
                   key={tier}
                   type="button"
                   disabled={disabled}
-                  onClick={() => setStakeCents(tier)}
-                  className={`rounded-pill px-4 py-2 text-sm font-semibold transition ${
-                    active
-                      ? "bg-yes text-bg"
-                      : "bg-bg2 text-text2 hover:bg-bg3"
-                  } disabled:opacity-40 disabled:cursor-not-allowed`}
+                  onClick={() => setStakeInput((tier / 100).toString())}
+                  className="rounded-pill px-3 py-1 text-xs font-semibold bg-bg2 text-text2 hover:bg-bg3 transition disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {formatCents(tier)}
                 </button>
               );
             })}
           </div>
-          <div className="mt-2 text-sm text-yes font-medium">
-            Win {formatCents(payoutIfCorrectCents)} if correct
-          </div>
-          {stakeCents > walletCents ? (
-            <p className="text-no text-xs mt-1">Stake exceeds wallet balance.</p>
+          {overBalance ? (
+            <p className="text-no text-xs mt-2">Stake exceeds wallet balance.</p>
           ) : null}
         </div>
 
-        {/* Summary tags */}
+        {/* Audience + Mediator chips (with inline expanding panels) */}
         <div className="mt-6 flex gap-2 flex-wrap">
-          <SummaryTag>{audienceLabel}</SummaryTag>
-          <SummaryTag>{mediatorLabel}</SummaryTag>
-          <SummaryTag>{expiryLabel}</SummaryTag>
-        </div>
-      </div>
-
-      {/* ── Sticky bottom ────────────────────────────────────────────── */}
-      <div className="shrink-0 bg-bg px-4 pt-3 pb-4 flex flex-col gap-3">
-        {/* Chip row */}
-        <div className="flex gap-2">
           <ChipButton
-            label={audienceLabel}
+            label={audienceChipLabel}
             open={openPanel === "audience"}
             onClick={() => togglePanel("audience")}
           />
           <ChipButton
-            label={mediatorLabel}
+            label={mediatorChipLabel}
             open={openPanel === "mediator"}
             onClick={() => togglePanel("mediator")}
           />
         </div>
-
-        {/* Expanded inline panels */}
         {openPanel === "audience" ? (
-          <AudiencePanel
-            scope={scope}
-            setScope={setScope}
-            friends={friends}
-            selectedFriendIds={selectedFriendIds}
-            toggleFriend={toggleFriend}
-            selectAllFriends={selectAllFriends}
-            groups={groups}
-            groupMemberCounts={groupMemberCounts}
-            selectedGroupId={selectedGroupId}
-            setSelectedGroupId={setSelectedGroupId}
-          />
+          <div className="mt-3">
+            <AudiencePanel
+              scope={scope}
+              setScope={(s) => {
+                setAudienceTouched(true);
+                setScope(s);
+              }}
+              friends={friends}
+              selectedFriendIds={selectedFriendIds}
+              toggleFriend={toggleFriend}
+              selectAllFriends={selectAllFriends}
+              groups={groups}
+              groupMemberCounts={groupMemberCounts}
+              selectedGroupId={selectedGroupId}
+              setSelectedGroupId={(id) => {
+                setAudienceTouched(true);
+                setSelectedGroupId(id);
+              }}
+            />
+          </div>
         ) : null}
         {openPanel === "mediator" ? (
-          <MediatorPanel
-            choice={mediatorChoice}
-            setChoice={setMediatorChoice}
-            friends={friends}
-            mediatorFriendId={mediatorFriendId}
-            setMediatorFriendId={setMediatorFriendId}
-          />
-        ) : null}
-        {openPanel === "expiry" ? (
-          <ExpiryPanel
-            kind={expiryKind}
-            setKind={setExpiryKind}
-            customValue={customExpiry}
-            setCustomValue={setCustomExpiry}
-          />
+          <div className="mt-3">
+            <MediatorPanel
+              choice={mediatorChoice}
+              setChoice={(c) => {
+                setMediatorTouched(true);
+                setMediatorChoice(c);
+                if (c === "self") {
+                  setMediatorOpen(false);
+                  setMediatorFriendId(null);
+                }
+              }}
+              friends={friends}
+              mediatorFriendId={mediatorFriendId}
+              mediatorOpen={mediatorOpen}
+              setMediatorFriendId={(id) => {
+                setMediatorTouched(true);
+                setMediatorOpen(false);
+                setMediatorFriendId(id);
+              }}
+              setMediatorOpen={() => {
+                setMediatorTouched(true);
+                setMediatorOpen(true);
+                setMediatorFriendId(null);
+              }}
+            />
+          </div>
         ) : null}
 
-        {/* Expiry selector + Post button */}
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => togglePanel("expiry")}
-            className={`rounded-pill bg-bg2 hover:bg-bg3 text-text2 text-xs font-medium px-3 py-2.5 transition whitespace-nowrap ${
-              openPanel === "expiry" ? "ring-1 ring-yes/40" : ""
-            }`}
-          >
-            {expiryLabel}
-          </button>
-          <button
-            type="button"
-            disabled={!canSubmit || busy}
-            onClick={submit}
-            className="flex-1 rounded-pill bg-yes text-bg font-bold text-sm py-3 hover:brightness-110 active:scale-[0.98] transition disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {busy ? "Posting…" : `Post bet — lock ${formatCents(stakeCents)}`}
-          </button>
+        {/* Win text — big, bold, green */}
+        <div className="mt-6 text-yes font-bold text-xl">
+          Win {formatCents(payoutIfCorrectCents)} if correct
         </div>
-        {error ? <p className="text-no text-xs">{error}</p> : null}
+
+        {error ? <p className="text-no text-xs mt-3">{error}</p> : null}
       </div>
     </div>
   );
@@ -536,14 +584,6 @@ function SideToggleButton({
     >
       {label}
     </button>
-  );
-}
-
-function SummaryTag({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="inline-flex items-center text-[11px] text-text3 bg-bg2/60 rounded-pill px-2 py-1">
-      {children}
-    </span>
   );
 }
 
@@ -622,6 +662,15 @@ function AudiencePanel({
   selectedGroupId: string | null;
   setSelectedGroupId: (id: string | null) => void;
 }) {
+  const [search, setSearch] = useState("");
+  const q = search.trim().toLowerCase();
+  const filteredFriends = q
+    ? friends.filter((f) => fullName(f).toLowerCase().includes(q))
+    : friends;
+  const filteredGroups = q
+    ? groups.filter((g) => g.name.toLowerCase().includes(q))
+    : groups;
+
   return (
     <PanelShell>
       <div className="inline-flex bg-bg3 rounded-pill p-1 self-start">
@@ -632,6 +681,14 @@ function AudiencePanel({
           Group
         </PanelTab>
       </div>
+
+      <input
+        type="text"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder={scope === "friends" ? "Search friends..." : "Search groups..."}
+        className="bg-bg3 rounded-input px-3 py-2 text-sm text-text placeholder:text-text3 outline-none focus:ring-2 focus:ring-yes/30"
+      />
 
       {scope === "friends" ? (
         friends.length === 0 ? (
@@ -646,16 +703,16 @@ function AudiencePanel({
                   ? `All ${friends.length}`
                   : `${selectedFriendIds.size} selected`}
               </span>
+            </div>
+            <div className="flex gap-2 flex-wrap">
               <button
                 type="button"
                 onClick={selectAllFriends}
-                className="text-yes hover:underline"
+                className="flex items-center gap-1 rounded-pill px-3 py-1 text-xs font-semibold border border-dashed border-yes/60 text-yes bg-yes/10 hover:bg-yes/20 transition"
               >
                 + Add all
               </button>
-            </div>
-            <div className="flex gap-2 flex-wrap">
-              {friends.map((f) => {
+              {filteredFriends.map((f) => {
                 const selected =
                   selectedFriendIds === null || selectedFriendIds.has(f.id);
                 return (
@@ -681,6 +738,9 @@ function AudiencePanel({
                   </button>
                 );
               })}
+              {filteredFriends.length === 0 ? (
+                <p className="text-text3 text-xs">No friends match.</p>
+              ) : null}
             </div>
           </>
         )
@@ -690,9 +750,11 @@ function AudiencePanel({
           <p className="text-text3 text-xs">
             You&apos;re not in any groups yet.
           </p>
+        ) : filteredGroups.length === 0 ? (
+          <p className="text-text3 text-xs">No groups match.</p>
         ) : (
           <div className="grid grid-cols-1 gap-2">
-            {groups.map((g) => {
+            {filteredGroups.map((g) => {
               const active = g.id === selectedGroupId;
               const count = groupMemberCounts[g.id] ?? 0;
               return (
@@ -729,19 +791,23 @@ function MediatorPanel({
   setChoice,
   friends,
   mediatorFriendId,
+  mediatorOpen,
   setMediatorFriendId,
+  setMediatorOpen,
 }: {
   choice: MediatorChoice;
   setChoice: (c: MediatorChoice) => void;
   friends: UserRow[];
   mediatorFriendId: string | null;
+  mediatorOpen: boolean;
   setMediatorFriendId: (id: string | null) => void;
+  setMediatorOpen: () => void;
 }) {
   return (
     <PanelShell>
       <MediatorOption
         title="Self-mediate"
-        description="Participants vote on the outcome"
+        description="You verify the outcome"
         active={choice === "self"}
         onClick={() => setChoice("self")}
       />
@@ -752,13 +818,25 @@ function MediatorPanel({
         onClick={() => setChoice("request")}
       />
       {choice === "request" ? (
-        friends.length === 0 ? (
-          <p className="text-text3 text-xs">
-            Add friends first to pick a mediator.
-          </p>
-        ) : (
-          <div className="flex gap-2 flex-wrap pt-1">
-            {friends.map((f) => {
+        <div className="flex gap-2 flex-wrap pt-1">
+          <button
+            type="button"
+            onClick={setMediatorOpen}
+            className={`flex items-center gap-2 rounded-pill px-3 py-1 text-xs border transition ${
+              mediatorOpen
+                ? "bg-yes/15 border-yes/50 text-yes"
+                : "bg-bg3 border-dashed border-text3/60 text-text2"
+            }`}
+          >
+            <span>Open request</span>
+            {mediatorOpen ? <CheckIcon /> : null}
+          </button>
+          {friends.length === 0 ? (
+            <p className="text-text3 text-xs self-center">
+              Add friends to pick a specific mediator.
+            </p>
+          ) : (
+            friends.map((f) => {
               const active = f.id === mediatorFriendId;
               return (
                 <button
@@ -781,9 +859,9 @@ function MediatorPanel({
                   <span>{fullName(f)}</span>
                 </button>
               );
-            })}
-          </div>
-        )
+            })
+          )}
+        </div>
       ) : null}
     </PanelShell>
   );
@@ -819,50 +897,51 @@ function MediatorOption({
 }
 
 function ExpiryPanel({
-  kind,
-  setKind,
-  customValue,
-  setCustomValue,
+  date,
+  time,
+  noExpiry,
+  error,
+  setDate,
+  setTime,
+  clear,
 }: {
-  kind: ExpiryKind;
-  setKind: (k: ExpiryKind) => void;
-  customValue: string;
-  setCustomValue: (s: string) => void;
+  date: string;
+  time: string;
+  noExpiry: boolean;
+  error: string | null;
+  setDate: (v: string) => void;
+  setTime: (v: string) => void;
+  clear: () => void;
 }) {
-  const options: { value: ExpiryKind; label: string }[] = [
-    { value: "none", label: "No expiry" },
-    { value: "24h", label: "24 hours" },
-    { value: "3d", label: "3 days" },
-    { value: "1w", label: "1 week" },
-    { value: "custom", label: "Pick date & time" },
-  ];
   return (
     <PanelShell>
-      <div className="flex flex-wrap gap-2">
-        {options.map((o) => (
-          <button
-            key={o.value}
-            type="button"
-            onClick={() => setKind(o.value)}
-            className={`rounded-pill px-3 py-1.5 text-xs font-medium border transition ${
-              kind === o.value
-                ? "bg-yes/15 border-yes/50 text-yes"
-                : "bg-bg3 border-transparent text-text2"
-            }`}
-          >
-            {o.label}
-          </button>
-        ))}
-      </div>
-      {kind === "custom" ? (
+      <div className="flex items-center gap-2 flex-wrap">
         <input
-          type="datetime-local"
-          value={customValue}
-          min={minLocal()}
-          onChange={(e) => setCustomValue(e.target.value)}
+          type="date"
+          value={date}
+          min={minDate()}
+          onChange={(e) => setDate(e.target.value)}
           className="bg-bg3 rounded-input px-3 py-2 text-sm text-text outline-none focus:ring-2 focus:ring-yes/30"
         />
-      ) : null}
+        <input
+          type="time"
+          value={time}
+          onChange={(e) => setTime(e.target.value)}
+          className="bg-bg3 rounded-input px-3 py-2 text-sm text-text outline-none focus:ring-2 focus:ring-yes/30"
+        />
+        <button
+          type="button"
+          onClick={clear}
+          className={`rounded-pill px-3 py-2 text-xs font-semibold transition ${
+            noExpiry
+              ? "bg-yes text-bg"
+              : "bg-bg3 text-text2 hover:bg-bg4"
+          }`}
+        >
+          No expiry
+        </button>
+      </div>
+      {error ? <p className="text-no text-xs">{error}</p> : null}
     </PanelShell>
   );
 }
@@ -925,16 +1004,12 @@ function pad(n: number): string {
   return n < 10 ? `0${n}` : `${n}`;
 }
 
-function minLocal(): string {
+function minDate(): string {
   const d = new Date();
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-function formatLocal(iso: string): string {
-  // The date-time-local input yields "YYYY-MM-DDTHH:MM" in local time. Render
-  // it back in a friendlier "Jun 7, 3:30 PM" form for the chip label.
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
+function formatLocalDate(d: Date): string {
   return d.toLocaleString(undefined, {
     month: "short",
     day: "numeric",
