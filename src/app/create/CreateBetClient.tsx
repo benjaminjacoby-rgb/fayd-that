@@ -551,7 +551,7 @@ export function CreateBetClient({
 
         {/* Win text — big, bold, green */}
         <div className="mt-6 text-yes font-bold text-xl">
-          Win {formatCents(payoutIfCorrectCents)} if correct
+          To Win {formatCents(payoutIfCorrectCents)}
         </div>
 
         {error ? <p className="text-no text-xs mt-3">{error}</p> : null}
