@@ -45,7 +45,10 @@ export function CreateBetClient({
 
   // ── Composer state ─────────────────────────────────────────────────────
   const [question, setQuestion] = useState("");
-  const [posterOdds, setPosterOdds] = useState(50);
+  // Single source of truth for the YES/NO split. The slider controls this
+  // directly, regardless of which side the poster takes. NO percent is
+  // derived (100 - yesPercent).
+  const [yesPercent, setYesPercent] = useState(50);
   const [posterSide, setPosterSide] = useState<BetSide>("yes");
   const [stakeInput, setStakeInput] = useState<string>(
     (DEFAULT_STAKE_CENTS / 100).toString(),
@@ -84,16 +87,18 @@ export function CreateBetClient({
     return Math.round(n * 100);
   }, [stakeInput]);
 
-  const yesProbability =
-    posterSide === "yes" ? posterOdds : 100 - posterOdds;
-  const yesPercent = yesProbability;
-  const noPercent = 100 - yesProbability;
+  const yesProbability = yesPercent;
+  const noPercent = 100 - yesPercent;
 
+  // To Win depends on the poster's side: stake / (probability that the
+  // poster's side wins). The displayed left/right percentages never move,
+  // but this payout updates when the side toggles.
   const payoutIfCorrectCents = useMemo(() => {
-    const p = posterOdds / 100;
+    const sidePercent = posterSide === "yes" ? yesPercent : noPercent;
+    const p = sidePercent / 100;
     if (p <= 0 || p >= 1) return 0;
     return Math.round(stakeCents / p);
-  }, [posterOdds, stakeCents]);
+  }, [posterSide, yesPercent, noPercent, stakeCents]);
 
   const overBalance = stakeCents > walletCents;
 
@@ -419,19 +424,28 @@ export function CreateBetClient({
         {/* Odds slider */}
         <div className="mt-4">
           <div className="flex items-baseline justify-between mb-2 tabular-nums">
-            <span className="text-yes font-extrabold text-2xl">{yesPercent}%</span>
-            <span className="text-no font-extrabold text-2xl">{noPercent}%</span>
+            <span
+              className={`text-yes font-extrabold text-2xl rounded-pill px-2.5 py-0.5 border ${
+                posterSide === "yes" ? "border-yes" : "border-transparent"
+              }`}
+            >
+              {yesPercent}%
+            </span>
+            <span
+              className={`text-no font-extrabold text-2xl rounded-pill px-2.5 py-0.5 border ${
+                posterSide === "no" ? "border-no" : "border-transparent"
+              }`}
+            >
+              {noPercent}%
+            </span>
           </div>
           <input
             type="range"
             min={MIN_PROBABILITY}
             max={MAX_PROBABILITY}
             step={1}
-            value={posterSide === "yes" ? yesPercent : noPercent}
-            onChange={(e) => {
-              const v = parseInt(e.target.value, 10);
-              setPosterOdds(posterSide === "yes" ? v : 100 - v);
-            }}
+            value={yesPercent}
+            onChange={(e) => setYesPercent(parseInt(e.target.value, 10))}
             className="fayd-slider w-full"
           />
         </div>
