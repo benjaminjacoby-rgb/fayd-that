@@ -4,7 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Avatar } from "./Avatar";
 import { CommentsSection } from "./CommentsSection";
+import { ReportModal } from "./ReportModal";
+import { Toast } from "./Toast";
 import { formatCents, fullName } from "@/lib/format";
+import { USE_MOCK_DATA } from "@/lib/config";
+import { reportBet, type ReportReason } from "@/lib/data/reportsClient";
+import { blockUser } from "@/lib/data/blockedClient";
+import { blockUserMock } from "@/lib/sessionState";
 import type { BetSide, BetView, MediatorState, Reaction, UserLite } from "@/types/db";
 
 interface Props {
@@ -95,6 +101,10 @@ export function PostCard({
   const [showAcceptMediator, setShowAcceptMediator] = useState(false);
   const [showConcludeConfirm, setShowConcludeConfirm] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [showBlockConfirm, setShowBlockConfirm] = useState(false);
+  const [blocking, setBlocking] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
   const meta = bet.post_meta;
   if (!meta) return null;
 
@@ -172,6 +182,32 @@ export function PostCard({
     router.push(`/create?${params.toString()}`);
   };
 
+  const handleReportSubmit = async ({ reason, details }: { reason: ReportReason; details: string }) => {
+    if (!USE_MOCK_DATA) {
+      await reportBet({ betId: bet.id, reason, details: details || undefined });
+    }
+    setToast("Report submitted — thanks for flagging this.");
+  };
+
+  const handleBlock = async () => {
+    if (blocking) return;
+    setBlocking(true);
+    try {
+      if (USE_MOCK_DATA) {
+        blockUserMock(bet.creator_id);
+      } else {
+        await blockUser(bet.creator_id);
+      }
+      setShowBlockConfirm(false);
+      setToast(`Blocked ${bet.creator.first_name ?? "user"} — you won't see each other's bets anymore.`);
+      router.refresh();
+    } catch (e) {
+      setToast(e instanceof Error ? `Couldn't block · ${e.message}` : "Couldn't block user");
+    } finally {
+      setBlocking(false);
+    }
+  };
+
   return (
     <article
       className={`bg-[#141414] rounded-card overflow-hidden border border-[#222] ${
@@ -241,6 +277,26 @@ export function PostCard({
                       Cancel bet
                     </button>
                   </li>
+                ) : null}
+                {!isMyBet ? (
+                  <>
+                    <li>
+                      <button
+                        onClick={() => { setMenuOpen(false); setShowReportModal(true); }}
+                        className="w-full text-left px-3 py-2.5 text-sm hover:bg-bg4 text-text"
+                      >
+                        Report post
+                      </button>
+                    </li>
+                    <li>
+                      <button
+                        onClick={() => { setMenuOpen(false); setShowBlockConfirm(true); }}
+                        className="w-full text-left px-3 py-2.5 text-sm hover:bg-bg4 text-no"
+                      >
+                        Block {bet.creator.first_name ?? "user"}
+                      </button>
+                    </li>
+                  </>
                 ) : null}
               </ul>
             </>
@@ -528,6 +584,18 @@ export function PostCard({
           }}
         />
       ) : null}
+      {showBlockConfirm ? (
+        <ConfirmModal
+          title={`Block ${bet.creator.first_name ?? "this user"}? You won't see each other's bets anymore.`}
+          confirmLabel={blocking ? "Blocking…" : "Block"}
+          onCancel={() => setShowBlockConfirm(false)}
+          onConfirm={handleBlock}
+        />
+      ) : null}
+      {showReportModal ? (
+        <ReportModal onClose={() => setShowReportModal(false)} onSubmit={handleReportSubmit} />
+      ) : null}
+      {toast ? <Toast message={toast} onDone={() => setToast(null)} /> : null}
 
       {/* ── Comments footer ─────────────────────────────────────────────── */}
       <div className="px-4 py-4 border-t border-[#222]">

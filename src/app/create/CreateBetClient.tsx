@@ -1,12 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Avatar } from "@/components/Avatar";
 import { MAX_PROBABILITY, MIN_PROBABILITY, USE_MOCK_DATA } from "@/lib/config";
 import { formatCents, fullName } from "@/lib/format";
 import { createBet } from "@/lib/data/betsClient";
 import { addChatMessage, addMyPost } from "@/lib/sessionState";
+import { containsBannedWord, DEFAULT_BANNED_WORDS } from "@/lib/moderation";
+import { fetchBannedWords } from "@/lib/data/moderationClient";
 import type {
   BetScope,
   BetSide,
@@ -45,6 +47,26 @@ export function CreateBetClient({
 
   // ── Composer state ─────────────────────────────────────────────────────
   const [question, setQuestion] = useState("");
+  // Live mode fetches the current list from the DB (same table the
+  // bets_check_language trigger reads); mock mode uses the static fallback
+  // since there's no DB to fetch from. Either way this is a UX pre-check —
+  // the trigger is what actually enforces it.
+  const [bannedWords, setBannedWords] = useState<readonly string[]>(DEFAULT_BANNED_WORDS);
+  useEffect(() => {
+    if (USE_MOCK_DATA) return;
+    fetchBannedWords()
+      .then((words) => {
+        if (words.length > 0) setBannedWords(words);
+      })
+      .catch(() => {
+        // Keep the static fallback — the DB trigger still enforces this
+        // regardless of whether the client-side pre-check loaded.
+      });
+  }, []);
+  const languageBlocked = useMemo(
+    () => containsBannedWord(question, bannedWords),
+    [question, bannedWords],
+  );
   // Single source of truth for the YES/NO split. The slider controls this
   // directly, regardless of which side the poster takes. NO percent is
   // derived (100 - yesPercent).
@@ -156,6 +178,7 @@ export function CreateBetClient({
   // ── Submit ─────────────────────────────────────────────────────────────
   const canSubmit =
     question.trim().length > 4 &&
+    !languageBlocked &&
     stakeCents > 0 &&
     stakeCents <= walletCents &&
     (scope !== "group" || !!selectedGroupId) &&
@@ -393,13 +416,20 @@ export function CreateBetClient({
             imageUrl={currentUser.avatar_url}
             size={40}
           />
-          <textarea
-            value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            placeholder="Write your bet here..."
-            rows={4}
-            className="flex-1 bg-transparent resize-none text-text text-lg leading-snug placeholder:text-text3 outline-none"
-          />
+          <div className="flex-1 min-w-0">
+            <textarea
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              placeholder="Write your bet here..."
+              rows={4}
+              className="w-full bg-transparent resize-none text-text text-lg leading-snug placeholder:text-text3 outline-none"
+            />
+            {languageBlocked ? (
+              <p className="text-no text-xs -mt-1">
+                This bet contains language that isn't allowed.
+              </p>
+            ) : null}
+          </div>
         </div>
 
         {/* My position + YES/NO toggle */}

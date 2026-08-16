@@ -84,7 +84,32 @@ export async function getFeedBets(): Promise<BetView[]> {
     .order("created_at", { ascending: false })
     .limit(50);
   if (betsError) throw betsError;
-  const bets = (betsData ?? []) as DbBet[];
+  return buildBetViews(supabase, (betsData ?? []) as DbBet[]);
+}
+
+/**
+ * Bets waiting on a ruling from `userId` — status is 'closed' (voting period
+ * over / manually closed) but not yet concluded, and `userId` is either the
+ * assigned mediator (mediator_type='requested') or self-mediating as the
+ * poster (mediator_type='self'). Backs the /mediate pending-rulings queue.
+ */
+export async function getMediationQueue(userId: string): Promise<BetView[]> {
+  const supabase = createClient();
+
+  const { data: betsData, error: betsError } = await supabase
+    .from("bets")
+    .select("*")
+    .eq("status", "closed")
+    .eq("is_concluded", false)
+    .or(
+      `and(mediator_type.eq.requested,mediator_id.eq.${userId}),and(mediator_type.eq.self,poster_id.eq.${userId})`,
+    )
+    .order("created_at", { ascending: false });
+  if (betsError) throw betsError;
+  return buildBetViews(supabase, (betsData ?? []) as DbBet[]);
+}
+
+async function buildBetViews(supabase: SupabaseClient, bets: DbBet[]): Promise<BetView[]> {
   if (bets.length === 0) return [];
 
   const betIds = bets.map((b) => b.id);

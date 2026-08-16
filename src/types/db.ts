@@ -7,7 +7,6 @@ export type BetStatus = "open" | "locked" | "closed" | "resolved" | "disputed" |
 export type BetScope = "friends" | "group";
 export type BetSide = "yes" | "no";
 export type BetOutcome = "win" | "lose";
-export type MediationStatus = "pending" | "ruling_submitted" | "complete";
 export type FriendshipStatus = "pending" | "accepted";
 
 // ── Phase 2: negotiations + contracts ──
@@ -95,16 +94,6 @@ export interface GroupMemberRow {
   user_id: string;
   status: GroupMemberStatus;
   joined_at: string;
-}
-
-export interface MediationRow {
-  id: string;
-  bet_id: string;
-  mediator_id: string;
-  status: MediationStatus;
-  ruling: BetSide | null;
-  fee_cents: number;
-  created_at: string;
 }
 
 export interface NotificationRow {

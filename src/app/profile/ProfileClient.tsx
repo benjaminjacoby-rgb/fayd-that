@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Avatar } from "@/components/Avatar";
 import { Button } from "@/components/ui/Button";
 import { EditProfileSheet } from "@/components/EditProfileSheet";
+import { Toast } from "@/components/Toast";
 import { formatCents, fullName } from "@/lib/format";
 import { IS_PAYMENTS_LIVE, USE_MOCK_DATA } from "@/lib/config";
 import type { GroupView, UserRow } from "@/types/db";
@@ -30,6 +31,7 @@ export function ProfileClient({
   const router = useRouter();
   const [me, setMe] = useState<UserRow>(meProp);
   const [editing, setEditing] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
   const totalPendingApprovals = groups.reduce((s, g) => s + (g.is_admin ? g.pending_join_count : 0), 0);
 
   return (
@@ -72,8 +74,15 @@ export function ProfileClient({
           ) : null}
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <Button onClick={() => alert("TODO: Stripe Payment Element")}>Add Funds</Button>
-          <Button variant="secondary" onClick={() => alert("TODO: Stripe payout")}>Withdraw</Button>
+          <Button onClick={() => setToast("Real payments aren't live yet — coming soon.")}>
+            Add Funds
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => setToast("Real payments aren't live yet — coming soon.")}
+          >
+            Withdraw
+          </Button>
         </div>
       </section>
 
@@ -162,6 +171,17 @@ export function ProfileClient({
         </Link>
       </section>
 
+      {/* Privacy & safety */}
+      <section className="bg-bg2 rounded-card p-4">
+        <h2 className="font-semibold mb-3">Privacy & Safety</h2>
+        <Link
+          href="/profile/blocked"
+          className="block text-center text-sm font-medium text-text2 hover:text-text bg-bg3 hover:bg-bg4 rounded-input py-2.5"
+        >
+          Blocked users
+        </Link>
+      </section>
+
       {/* Legal links */}
       <div className="flex items-center justify-center gap-3 py-2 pb-4">
         <Link href="/terms" className="text-text3 text-xs hover:text-text2 transition">
@@ -192,6 +212,8 @@ export function ProfileClient({
           }}
         />
       ) : null}
+
+      {toast ? <Toast message={toast} onDone={() => setToast(null)} /> : null}
     </div>
   );
 }

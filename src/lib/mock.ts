@@ -590,6 +590,40 @@ export const MOCK_BETS: BetView[] = [
       mediator: { mode: "accepted", mediator: u("u-noor") },
     },
   },
+
+  // ── b-mediate-1: Closed bet awaiting your ruling as mediator ──
+  {
+    id: "b-mediate-1",
+    creator_id: "u-sarah",
+    question: "Sarah hits 5k under 25 min this Sunday",
+    category: "fitness",
+    yes_probability: 60,
+    stake_cents: 3_000,
+    expiry_at: hoursAgo(1),
+    resolution_notes: null,
+    status: "closed",
+    scope: "friends",
+    group_id: null,
+    created_at: hoursAgo(30),
+    resolved_at: null,
+    creator: u("u-sarah"),
+    participants: [],
+    contracts: [
+      contract("c-mediate-1-1", "b-mediate-1", "u-sarah", "u-jay", 60, 3_000, 28),
+    ],
+    open_negotiations: [],
+    post_meta: {
+      relationship: relFor("u-sarah", "friends", null),
+      poster_side: "yes",
+      original_filled_cents: 3_000,
+      reactions: [],
+      comments: [],
+      poll: poll(0, 0, null),
+      sub_contracts: [],
+      mediator: { mode: "accepted", mediator: u("mock-me") },
+      end_at: null,
+    },
+  },
 ];
 
 /** Bets posted to a specific group (group feed). */
@@ -793,24 +827,36 @@ export function mockBetById(id: string): BetView | undefined {
 // ────────────────────────────────────────────────
 // Mediations — unchanged (Phase 3 territory; do not touch)
 // ────────────────────────────────────────────────
-export const MOCK_MEDIATIONS = [
+/** Bets where `mock-me` is the assigned mediator and a ruling is pending. */
+export function mockMediationQueue(): BetView[] {
+  return MOCK_BETS.filter(
+    (b) =>
+      b.status === "closed" &&
+      !b.post_meta?.concluded &&
+      b.post_meta?.mediator?.mode === "accepted" &&
+      b.post_meta.mediator.mediator?.id === MOCK_CURRENT_USER.id,
+  );
+}
+
+/** Demo data for the /admin reports dashboard in mock mode. */
+export interface MockReport {
+  id: string;
+  status: "open" | "resolved" | "dismissed";
+  reason: string;
+  details: string | null;
+  createdAt: string;
+  bet: { id: string; question: string; isRemoved: boolean } | null;
+  reporter: { id: string; name: string; username: string | null };
+}
+
+export const MOCK_REPORTS: MockReport[] = [
   {
-    id: "m-1",
-    bet_id: "b-mediate-1",
-    mediator_id: "mock-me",
-    status: "pending" as const,
-    ruling: null,
-    fee_cents: 200,
-    created_at: hoursAgo(6),
-    bet: {
-      id: "b-mediate-1",
-      question: "Sarah hits 5k under 25 min this Sunday",
-      stake_cents: 3_000,
-      pot_cents: 6_000,
-      parties: [
-        { user: u("u-sarah"), side: "yes" as const, evidence: "Strava screenshot pending" },
-        { user: u("u-jay"),   side: "no" as const,  evidence: "Said she's been injured" },
-      ],
-    },
+    id: "rep-1",
+    status: "open",
+    reason: "inappropriate",
+    details: "This is targeting someone specific in a mean way.",
+    createdAt: hoursAgo(2),
+    bet: { id: "b-1", question: MOCK_BETS.find((b) => b.id === "b-1")?.question ?? "—", isRemoved: false },
+    reporter: { id: "u-jay", name: "Jay P.", username: "jayp" },
   },
 ];

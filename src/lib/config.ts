@@ -9,10 +9,6 @@ export const IS_PAYMENTS_LIVE = process.env.NEXT_PUBLIC_IS_PAYMENTS_LIVE === "tr
 export const USE_MOCK_DATA =
   process.env.NEXT_PUBLIC_USE_MOCK_DATA === "true" || !process.env.NEXT_PUBLIC_SUPABASE_URL;
 
-// Mediator compensation — paid to the mediator user, not to Fayd.
-export const MEDIATOR_FEE_BPS = 500; // 5% of pot
-export const MEDIATOR_FEE_MIN_CENTS = 50;
-
 // Bet constraints
 export const MIN_PROBABILITY = 5;
 export const MAX_PROBABILITY = 95;

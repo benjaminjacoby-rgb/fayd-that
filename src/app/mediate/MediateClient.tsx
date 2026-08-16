@@ -2,57 +2,42 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import { Avatar } from "@/components/Avatar";
-import { Button } from "@/components/ui/Button";
-import { formatCents } from "@/lib/format";
-import type { BetSide, MediationStatus } from "@/types/db";
+import { ResolutionSection } from "@/components/ResolutionSection";
+import { formatCents, fullName } from "@/lib/format";
+import type { BetSide, BetView, UserLite } from "@/types/db";
 
-export interface MediationView {
-  id: string;
-  betId: string;
-  question: string;
-  potCents: number;
-  feeCents: number;
-  status: MediationStatus;
-  parties: Array<{
-    userId: string;
-    name: string;
-    color: string;
-    side: BetSide;
-    evidence: string;
-  }>;
+function partiesFor(bet: BetView): Array<{ user: UserLite; side: BetSide }> {
+  const byId = new Map<string, { user: UserLite; side: BetSide }>();
+  if (bet.creator_id && bet.post_meta) {
+    byId.set(bet.creator_id, { user: bet.creator, side: bet.post_meta.poster_side });
+  }
+  for (const c of bet.contracts ?? []) {
+    if (c.yes_user_id && !byId.has(c.yes_user_id)) {
+      byId.set(c.yes_user_id, { user: c.yes_user, side: "yes" });
+    }
+    if (c.no_user_id && !byId.has(c.no_user_id)) {
+      byId.set(c.no_user_id, { user: c.no_user, side: "no" });
+    }
+  }
+  return Array.from(byId.values());
 }
 
 export function MediateClient({
-  mediations,
-  totalEarnedCents,
+  bets: initialBets,
+  currentUserId,
 }: {
-  mediations: MediationView[];
-  totalEarnedCents: number;
+  bets: BetView[];
+  currentUserId: string;
 }) {
   const router = useRouter();
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [ruledIds, setRuledIds] = useState<Set<string>>(new Set());
-  const [error, setError] = useState<string | null>(null);
+  const [bets, setBets] = useState<BetView[]>(initialBets);
 
-  async function rule(id: string, side: BetSide, feeCents: number) {
-    setBusyId(id);
-    setError(null);
-    try {
-      const supabase = createClient();
-      const { error: dbErr } = await supabase
-        .from("mediations")
-        .update({ ruling: side, status: "ruling_submitted", fee_cents: feeCents })
-        .eq("id", id);
-      if (dbErr) throw dbErr;
-      setRuledIds((prev) => new Set([...prev, id]));
-      router.refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't submit ruling");
-    } finally {
-      setBusyId(null);
-    }
+  function handleSettled(betId: string) {
+    // Drop it from the queue immediately; a background refresh re-syncs
+    // the server-fetched list (e.g. any other bet that just became due).
+    setBets((prev) => prev.filter((b) => b.id !== betId));
+    router.refresh();
   }
 
   return (
@@ -61,67 +46,58 @@ export function MediateClient({
         <div className="bg-gradient-to-br from-gold/15 to-bg2 border border-gold/20 rounded-card p-4 flex items-center gap-4">
           <div className="text-3xl">⚖️</div>
           <div>
-            <div className="text-[10px] uppercase tracking-wide text-text3">Mediator earnings</div>
-            <div className="font-mono text-2xl font-semibold text-gold">{formatCents(totalEarnedCents)}</div>
+            <div className="text-[10px] uppercase tracking-wide text-text3">Mediator queue</div>
+            <div className="font-mono text-2xl font-semibold text-gold">{bets.length}</div>
           </div>
         </div>
       </div>
 
-      {mediations.length === 0 ? (
+      {bets.length === 0 ? (
         <div className="px-6 pt-16 text-center">
           <div className="text-5xl mb-3">🕊️</div>
           <h2 className="text-lg font-semibold mb-1">Nothing to rule on</h2>
-          <p className="text-text2 text-sm">When a bet you mediate gets disputed, it'll appear here.</p>
+          <p className="text-text2 text-sm">When a bet you mediate closes, it'll appear here.</p>
         </div>
       ) : (
         <ul className="flex flex-col gap-3 px-4 pt-4">
-          {mediations.map((m) => (
-            <li key={m.id} className="bg-bg2 rounded-card p-4 border border-gold/20">
+          {bets.map((bet) => (
+            <li key={bet.id} className="bg-bg2 rounded-card p-4 border border-gold/20">
               <div className="flex items-start justify-between gap-3">
-                <p className="font-medium leading-snug flex-1">{m.question}</p>
-                <span className="text-[11px] uppercase font-semibold bg-gold/20 text-gold rounded-pill px-2 py-0.5">
-                  +{formatCents(m.feeCents)} fee
+                <p className="font-medium leading-snug flex-1">{bet.question}</p>
+                <span className="text-[11px] uppercase font-semibold bg-gold/20 text-gold rounded-pill px-2 py-0.5 whitespace-nowrap">
+                  {formatCents(bet.stake_cents)} staked
                 </span>
               </div>
 
-              <div className="mt-3 text-xs text-text3">
-                Pot <span className="font-mono text-text2">{formatCents(m.potCents)}</span>
-              </div>
-
               <ul className="mt-3 flex flex-col gap-2">
-                {m.parties.map((p) => (
-                  <li key={p.userId} className="bg-bg3 rounded-input p-3">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Avatar first={p.name.split(" ")[0] ?? "?"} lastInitial={p.name.split(" ")[1]?.[0] ?? ""} color={p.color} size={24} />
-                      <span className="text-sm flex-1">{p.name}</span>
-                      <span className={`text-[11px] font-semibold uppercase rounded-pill px-2 py-0.5 ${
-                        p.side === "yes" ? "bg-yes/20 text-yes" : "bg-no/20 text-no"
-                      }`}>
-                        {p.side}
-                      </span>
-                    </div>
-                    <p className="text-xs text-text2 italic">"{p.evidence}"</p>
+                {partiesFor(bet).map(({ user, side }) => (
+                  <li key={user.id} className="bg-bg3 rounded-input p-3 flex items-center gap-2">
+                    <Avatar
+                      first={user.first_name}
+                      lastInitial={user.last_name_initial}
+                      color={user.avatar_color}
+                      imageUrl={user.avatar_url}
+                      size={24}
+                    />
+                    <span className="text-sm flex-1">
+                      {user.id === currentUserId ? "You" : fullName(user)}
+                    </span>
+                    <span
+                      className={`text-[11px] font-semibold uppercase rounded-pill px-2 py-0.5 ${
+                        side === "yes" ? "bg-yes/20 text-yes" : "bg-no/20 text-no"
+                      }`}
+                    >
+                      {side}
+                    </span>
                   </li>
                 ))}
               </ul>
 
-              {m.status === "pending" && !ruledIds.has(m.id) ? (
-                <>
-                  <div className="grid grid-cols-2 gap-2 mt-4">
-                    <Button variant="yes" disabled={busyId === m.id} onClick={() => rule(m.id, "yes", m.feeCents)}>
-                      {busyId === m.id ? "Submitting…" : "Rule YES"}
-                    </Button>
-                    <Button variant="no" disabled={busyId === m.id} onClick={() => rule(m.id, "no", m.feeCents)}>
-                      {busyId === m.id ? "Submitting…" : "Rule NO"}
-                    </Button>
-                  </div>
-                  {error && busyId === null ? (
-                    <p className="mt-2 text-xs text-no">{error}</p>
-                  ) : null}
-                </>
-              ) : (
-                <div className="mt-3 text-xs text-text3 italic">Ruling submitted.</div>
-              )}
+              <ResolutionSection
+                bet={bet}
+                currentUserId={currentUserId}
+                onSettled={() => handleSettled(bet.id)}
+              />
             </li>
           ))}
         </ul>

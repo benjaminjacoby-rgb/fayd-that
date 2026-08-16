@@ -40,6 +40,8 @@ interface State {
   sessionBetsById: Record<string, BetView>;
   myPosts: MyPostView[];
   myActiveContracts: PendingContractView[];
+  /** Mock-mode-only block list — live mode is enforced by RLS instead. */
+  blockedUserIds: Set<string>;
 }
 
 // ────────────────────────────────────────────────
@@ -87,6 +89,7 @@ function seed(): State {
     sessionBetsById: {},
     myPosts,
     myActiveContracts,
+    blockedUserIds: new Set(),
   };
 }
 
@@ -165,6 +168,20 @@ export function addMyActiveContract(c: Omit<PendingContractView, "source">) {
   notify();
 }
 
+export function blockUserMock(userId: string) {
+  if (state.blockedUserIds.has(userId)) return;
+  state.blockedUserIds = new Set([...state.blockedUserIds, userId]);
+  notify();
+}
+
+export function unblockUserMock(userId: string) {
+  if (!state.blockedUserIds.has(userId)) return;
+  const next = new Set(state.blockedUserIds);
+  next.delete(userId);
+  state.blockedUserIds = next;
+  notify();
+}
+
 // ────────────────────────────────────────────────
 // Selectors — must be called inside a component that subscribed via
 // useSessionStore(), otherwise updates won't trigger re-renders.
@@ -187,6 +204,14 @@ export function getMyPosts(): MyPostView[] {
 
 export function getMyActiveContracts(): PendingContractView[] {
   return state.myActiveContracts;
+}
+
+export function isBlockedMock(userId: string): boolean {
+  return state.blockedUserIds.has(userId);
+}
+
+export function getBlockedUserIdsMock(): string[] {
+  return Array.from(state.blockedUserIds);
 }
 
 /** Total inbox unread, counting opened conversations as zero. */

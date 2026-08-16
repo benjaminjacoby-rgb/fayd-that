@@ -1,72 +1,19 @@
 import { AppShell } from "@/components/AppShell";
-import { MediateClient, type MediationView } from "./MediateClient";
-import { USE_MOCK_DATA, MEDIATOR_FEE_BPS, MEDIATOR_FEE_MIN_CENTS } from "@/lib/config";
-import { MOCK_MEDIATIONS, MOCK_CURRENT_USER } from "@/lib/mock";
-import { getCurrentUser } from "@/lib/supabase/users";
-import { getMediationsForUser } from "@/lib/supabase/mediations";
+import { MediateClient } from "./MediateClient";
+import { USE_MOCK_DATA } from "@/lib/config";
+import { MOCK_CURRENT_USER, mockMediationQueue } from "@/lib/mock";
+import { getCurrentUserRow } from "@/lib/data/profile";
+import { getMediationQueue } from "@/lib/data/bets";
 
 export const dynamic = "force-dynamic";
 
 export default async function MediatePage() {
-  const me = USE_MOCK_DATA ? MOCK_CURRENT_USER : (await getCurrentUser()) ?? MOCK_CURRENT_USER;
-
-  let views: MediationView[];
-  if (USE_MOCK_DATA) {
-    views = MOCK_MEDIATIONS.map((m) => ({
-      id: m.id,
-      betId: m.bet_id,
-      question: m.bet.question,
-      potCents: m.bet.pot_cents,
-      feeCents: Math.max(MEDIATOR_FEE_MIN_CENTS, Math.round((m.bet.pot_cents * MEDIATOR_FEE_BPS) / 10_000)),
-      status: m.status,
-      parties: m.bet.parties.map((p) => ({
-        userId: p.user.id,
-        name: `${p.user.first_name ?? "?"} ${p.user.last_name_initial ?? ""}.`,
-        color: p.user.avatar_color,
-        side: p.side,
-        evidence: p.evidence,
-      })),
-    }));
-  } else {
-    const rows = await getMediationsForUser(me.id);
-    views = rows.map((m) => {
-      const pot = (m.bet?.participants ?? []).reduce(
-        (s: number, p: { stake_cents: number }) => s + p.stake_cents,
-        0,
-      );
-      return {
-        id: m.id,
-        betId: m.bet_id,
-        question: m.bet?.question ?? "",
-        potCents: pot,
-        feeCents: Math.max(MEDIATOR_FEE_MIN_CENTS, Math.round((pot * MEDIATOR_FEE_BPS) / 10_000)),
-        status: m.status,
-        parties: (m.bet?.participants ?? []).map(
-          (p: {
-            user_id: string;
-            user: { full_name: string | null; username: string | null };
-            side: "yes" | "no";
-          }) => ({
-            userId: p.user_id,
-            name: p.user.full_name?.trim() || (p.user.username ? `@${p.user.username}` : "—"),
-            color: "yes",
-            side: p.side,
-            evidence: "—",
-          }),
-        ),
-      };
-    });
-  }
-
-  // Sum the mediator fee from all concluded/submitted mediations.
-  // `views` is already fetched above — no extra DB round-trip needed.
-  const totalEarnedCents = views
-    .filter((v) => v.status === "ruling_submitted" || v.status === "complete")
-    .reduce((sum, v) => sum + v.feeCents, 0);
+  const me = USE_MOCK_DATA ? MOCK_CURRENT_USER : (await getCurrentUserRow()) ?? MOCK_CURRENT_USER;
+  const bets = USE_MOCK_DATA ? mockMediationQueue() : await getMediationQueue(me.id);
 
   return (
     <AppShell title="Mediate">
-      <MediateClient mediations={views} totalEarnedCents={totalEarnedCents} />
+      <MediateClient bets={bets} currentUserId={me.id} />
     </AppShell>
   );
 }

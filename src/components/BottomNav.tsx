@@ -18,6 +18,7 @@ const TABS: Tab[] = [
   { href: "/groups",   label: "Groups",     icon: <PeopleIcon />, prefixMatch: true },
   { href: "/create",   label: "Post a Bet", icon: <PlusIcon />, center: true },
   { href: "/pending",  label: "My Bets",    icon: <ClockIcon />, prefixMatch: true },
+  { href: "/mediate",  label: "Mediate",    icon: <ScalesIcon />, prefixMatch: true },
   { href: "/profile",  label: "Profile",    icon: <PersonIcon /> },
 ];
 
@@ -101,6 +102,17 @@ function PersonIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 4-7 8-7s8 3 8 7" />
+    </svg>
+  );
+}
+function ScalesIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3v18" />
+      <path d="M5 21h14" />
+      <path d="M5 7h14" />
+      <path d="M5 7l-3 6a3 3 0 006 0L5 7z" />
+      <path d="M19 7l-3 6a3 3 0 006 0L19 7z" />
     </svg>
   );
 }
