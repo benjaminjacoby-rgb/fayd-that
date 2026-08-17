@@ -1,0 +1,39 @@
+-- 023_group_join_bypass_fix.sql
+--
+-- Closes a hole in the group join-approval flow captured in 021.
+--
+-- The approval flow assumes a user can only ever insert themselves as
+-- status='pending', and that only the group admin can promote them to
+-- 'active' (src/lib/data/groupsClient.ts: requestJoinGroup → approveJoinRequest).
+-- `group_members_insert_pending_self` enforces exactly that.
+--
+-- But `group_members_insert_self` from migration 002 is still in force:
+--
+--   with check (auth.uid() = user_id)
+--
+-- with no predicate on `status`. Postgres ORs permissive policies together, so
+-- the narrower pending-only policy adds nothing — any authenticated user can
+-- POST a group_members row for themselves with status='active' into *any*
+-- group_id and land as a full member, skipping the admin entirely. Group ids
+-- are readable (groups_select_authenticated is USING (true)), so this needs no
+-- invite code and no guessing.
+--
+-- Worse, the group-chat trigger from migration 008 fires on that INSERT and
+-- adds them to the group's conversation_participants, which is what
+-- messages_select_participant gates on — so the same request also grants read
+-- access to the group's entire chat history.
+--
+-- Fix: drop the unrestricted self-insert policy. Every legitimate INSERT path
+-- in the app is already covered by one of the two remaining policies —
+-- confirmed by walking all four call sites:
+--
+--   groupsClient.ts:48   createGroup .......... group_members_insert_admin
+--       (the `groups` row is inserted first with admin_id = auth.uid(), so the
+--        creator's own row *and* any invited members satisfy the admin policy)
+--   groupsClient.ts:87   addGroupMember ....... group_members_insert_admin
+--   groupsClient.ts:142  requestJoinGroup ..... group_members_insert_pending_self
+--   groupsClient.ts:160  approveJoinRequest ... group_members_insert_admin
+--
+-- No other file inserts into group_members.
+
+drop policy if exists "group_members_insert_self" on public.group_members;
