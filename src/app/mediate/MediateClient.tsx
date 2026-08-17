@@ -68,6 +68,15 @@ export function MediateClient({
                   {formatCents(bet.stake_cents)} staked
                 </span>
               </div>
+              <span
+                className={`inline-block mt-1.5 text-[10px] font-bold uppercase tracking-wide rounded-pill px-2 py-0.5 ${
+                  bet.status === "closed"
+                    ? "bg-no/15 text-no"
+                    : "bg-bg3 text-text3"
+                }`}
+              >
+                {bet.status === "closed" ? "Ready to rule" : "Still open — waiting to close"}
+              </span>
 
               <ul className="mt-3 flex flex-col gap-2">
                 {partiesFor(bet).map(({ user, side }) => (

@@ -88,10 +88,13 @@ export async function getFeedBets(): Promise<BetView[]> {
 }
 
 /**
- * Bets waiting on a ruling from `userId` — status is 'closed' (voting period
- * over / manually closed) but not yet concluded, and `userId` is either the
- * assigned mediator (mediator_type='requested') or self-mediating as the
- * poster (mediator_type='self'). Backs the /mediate pending-rulings queue.
+ * Bets `userId` is on the hook to mediate — not yet concluded, and userId is
+ * either the assigned mediator (mediator_type='requested') or self-mediating
+ * as the poster (mediator_type='self'). Includes bets that are still open,
+ * not just closed ones: a mediator should see what they're assigned to the
+ * moment they accept, not only once it's ripe for a ruling. The UI
+ * (ResolutionSection) only shows the actual ruling controls once the bet
+ * closes; still-open ones render as "assigned, nothing to do yet".
  */
 export async function getMediationQueue(userId: string): Promise<BetView[]> {
   const supabase = createClient();
@@ -99,7 +102,7 @@ export async function getMediationQueue(userId: string): Promise<BetView[]> {
   const { data: betsData, error: betsError } = await supabase
     .from("bets")
     .select("*")
-    .eq("status", "closed")
+    .eq("is_concluded", false)
     .eq("is_concluded", false)
     .or(
       `and(mediator_type.eq.requested,mediator_id.eq.${userId}),and(mediator_type.eq.self,poster_id.eq.${userId})`,

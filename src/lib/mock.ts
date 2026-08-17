@@ -831,7 +831,6 @@ export function mockBetById(id: string): BetView | undefined {
 export function mockMediationQueue(): BetView[] {
   return MOCK_BETS.filter(
     (b) =>
-      b.status === "closed" &&
       !b.post_meta?.concluded &&
       b.post_meta?.mediator?.mode === "accepted" &&
       b.post_meta.mediator.mediator?.id === MOCK_CURRENT_USER.id,

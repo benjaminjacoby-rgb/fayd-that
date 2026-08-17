@@ -241,12 +241,16 @@ export async function fillBet(
  * so that resolution voting / mediation becomes available to participants.
  * No wallet changes at this step — funds settle via settleBet.
  */
+/**
+ * Poster or mediator closes an open bet to new fills. Routed through the
+ * `close_bet` RPC (not a plain update) because the caller here is often the
+ * mediator, not the poster — the only bets UPDATE policy in RLS
+ * (`bets_update_self`) is poster-only, so a direct `.update()` from a
+ * mediator would silently match zero rows.
+ */
 export async function closeBet(betId: string): Promise<void> {
   const supabase = createClient();
-  const { error } = await supabase
-    .from("bets")
-    .update({ status: "closed" })
-    .eq("id", betId);
+  const { error } = await supabase.rpc("close_bet", { target_bet_id: betId });
   if (error) throw error;
 }
 
@@ -272,34 +276,26 @@ export async function cancelBet(params: {
 /**
  * Poster or mediator marks the bet as concluded — flips is_concluded and
  * status='concluded' so the feed surface treats it as done. Wallet settlement
- * is a separate flow (settleBet RPC).
+ * is a separate flow (settleBet RPC). Routed through `conclude_bet` for the
+ * same reason as closeBet above — a mediator isn't the poster, so a plain
+ * `.update()` would silently no-op under RLS.
  */
 export async function markBetConcluded(betId: string): Promise<void> {
   const supabase = createClient();
-  const { error } = await supabase
-    .from("bets")
-    .update({ status: "concluded", is_concluded: true })
-    .eq("id", betId);
+  const { error } = await supabase.rpc("conclude_bet", { target_bet_id: betId });
   if (error) throw error;
 }
 
 /**
- * Accept an open mediator-request slot on a bet. RLS allows this only when
- * `mediator_type='requested'` and `mediator_id IS NULL`, and the new value
- * must equal `auth.uid()`.
+ * Accept an open mediator-request slot on a bet. Routed through the
+ * `accept_mediator` RPC: the accepting user is never the poster (self-
+ * mediation is a separate flow), so a plain `.update()` — gated by the
+ * poster-only `bets_update_self` RLS policy — would silently match zero
+ * rows and leave `mediator_id` unset, even though the call "succeeds".
  */
 export async function acceptMediator(betId: string): Promise<void> {
   const supabase = createClient();
-  const {
-    data: { user: authUser },
-  } = await supabase.auth.getUser();
-  if (!authUser) throw new Error("Not authenticated");
-  const { error } = await supabase
-    .from("bets")
-    .update({ mediator_id: authUser.id })
-    .eq("id", betId)
-    .eq("mediator_type", "requested")
-    .is("mediator_id", null);
+  const { error } = await supabase.rpc("accept_mediator", { target_bet_id: betId });
   if (error) throw error;
 }
 
