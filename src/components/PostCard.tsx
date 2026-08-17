@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Avatar } from "./Avatar";
 import { CommentsSection } from "./CommentsSection";
@@ -258,7 +259,7 @@ export function PostCard({
                     Start new contract
                   </button>
                 </li>
-                {(bet.creator_id === currentUserId || isMediator) && !concluded ? (
+                {(bet.creator_id === currentUserId || isMediator) && !concluded && bet.status === "closed" ? (
                   <li>
                     <button
                       onClick={() => { setMenuOpen(false); setShowConcludeConfirm(true); }}
@@ -741,7 +742,7 @@ function ConfirmModal({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center px-6 bg-black/60" onClick={onCancel}>
       <div
         className="bg-bg2 rounded-card w-full max-w-sm p-5"
@@ -763,6 +764,7 @@ function ConfirmModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

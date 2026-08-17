@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { REPORT_REASONS, type ReportReason } from "@/lib/data/reportsClient";
 
 export function ReportModal({
@@ -30,7 +31,7 @@ export function ReportModal({
     }
   }
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center px-6 bg-black/60"
       onClick={onClose}
@@ -91,6 +92,7 @@ export function ReportModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
