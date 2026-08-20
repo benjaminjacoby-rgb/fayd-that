@@ -39,6 +39,10 @@ export default async function HomePage() {
     !me.has_seen_name_prompt &&
     hasOldNameFormat(me.first_name);
 
+  // One-time welcome walkthrough — shown once per user (new signups right
+  // after onboarding, existing users on their next login), see migration 026.
+  const showWelcome = !USE_MOCK_DATA && !me.has_seen_welcome;
+
   return (
     <AppShell
       title="Feed"
@@ -57,6 +61,7 @@ export default async function HomePage() {
           avatar_url: me.avatar_url ?? null,
         }}
         showNamePrompt={showNamePrompt}
+        showWelcome={showWelcome}
       />
     </AppShell>
   );

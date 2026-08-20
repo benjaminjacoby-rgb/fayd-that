@@ -11,6 +11,7 @@ interface DbUser {
   wallet_balance: number | null;
   created_at: string;
   has_seen_name_prompt: boolean | null;
+  has_seen_welcome: boolean | null;
 }
 
 /**
@@ -28,7 +29,7 @@ export async function getCurrentUserRow(): Promise<UserRow | null> {
 
   const { data, error } = await supabase
     .from("users")
-    .select("id, username, full_name, phone_number, avatar_url, wallet_balance, created_at, has_seen_name_prompt")
+    .select("id, username, full_name, phone_number, avatar_url, wallet_balance, created_at, has_seen_name_prompt, has_seen_welcome")
     .eq("id", authUser.id)
     .maybeSingle();
   if (error) throw error;
@@ -112,6 +113,7 @@ export function dbUserToUserRow(u: {
   wallet_balance: number | null;
   created_at: string;
   has_seen_name_prompt?: boolean | null;
+  has_seen_welcome?: boolean | null;
 }): UserRow {
   const { first, last } = splitFullName(u.full_name);
   return {
@@ -126,6 +128,7 @@ export function dbUserToUserRow(u: {
     wallet_balance_cents: Math.round(Number(u.wallet_balance ?? 0) * 100),
     created_at: u.created_at,
     has_seen_name_prompt: u.has_seen_name_prompt ?? false,
+    has_seen_welcome: u.has_seen_welcome ?? false,
   };
 }
 

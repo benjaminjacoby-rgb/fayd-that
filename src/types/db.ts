@@ -33,6 +33,8 @@ export interface UserRow {
   created_at: string;
   /** True once the user has saved or dismissed the one-time "update your name" prompt. */
   has_seen_name_prompt?: boolean;
+  /** True once the user has finished or dismissed the one-time welcome walkthrough. */
+  has_seen_welcome?: boolean;
 }
 
 export type UserLite = Pick<

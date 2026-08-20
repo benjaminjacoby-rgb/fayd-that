@@ -114,6 +114,7 @@ cents at the data-access boundary (see CLAUDE.md).
 | wallet_balance | numeric, default 200, not null | dollars; the $200 starting balance is a migration-003 testing seed, explicitly flagged for removal before real money goes live |
 | created_at | timestamptz, default now() | |
 | has_seen_name_prompt | boolean, default false | gates a one-time "update your name" popup |
+| has_seen_welcome | boolean, default false | migration 026; gates the one-time welcome walkthrough, see below |
 
 RLS: `users_select_authenticated` (any authenticated user can read all users — permissive by
 design), `users_insert_self`/`users_update_self` (self only).
@@ -357,7 +358,8 @@ of that).
    collects first/last name, username, avatar color, then `upsert`s into `public.users` (this is
    the only write that creates the `public.users` row — there's no DB trigger auto-creating it
    from `auth.users` on signup, so a user who verifies OTP but abandons onboarding has an
-   `auth.users` row with no matching `public.users` row).
+   `auth.users` row with no matching `public.users` row). Redirects to `/` on completion, which is
+   where the welcome walkthrough (below) first has a chance to render.
 4. **Every subsequent request**: [`src/middleware.ts`](../src/middleware.ts) → `updateSession()`
    in [`src/lib/supabase/middleware.ts`](../src/lib/supabase/middleware.ts). This runs on every
    route except static assets (see the `matcher` config). It creates a request-scoped Supabase
@@ -376,6 +378,29 @@ of that).
 Once verified, "confirmed as that user" downstream is just `auth.uid()` inside Postgres — every
 RLS policy and every `SECURITY DEFINER` function keys off it directly; there's no separate
 session-validation layer in application code.
+
+### One-time welcome walkthrough (added 2026-08-20)
+
+[`WelcomeWalkthrough.tsx`](../src/components/WelcomeWalkthrough.tsx) is a full-bleed, 4-slide
+popup (welcome → post and set your line → choose a mediator → no fees / play-money disclaimer)
+gated by `users.has_seen_welcome` (migration 026). It follows the exact same one-time-popup
+pattern `NameUpdatePrompt.tsx` established:
+
+1. `src/app/page.tsx` computes `showWelcome = !USE_MOCK_DATA && !me.has_seen_welcome`
+   server-side and passes it down as a prop.
+2. [`HomeClient.tsx`](../src/app/HomeClient.tsx) seeds local state from that prop and renders the
+   popup client-side; on `onDone` it calls
+   [`dismissWelcome()`](../src/lib/data/profileClient.ts) (sets `has_seen_welcome = true`, mirrors
+   `dismissNamePrompt()`) then `router.refresh()`.
+3. **Precedence**: if both the welcome walkthrough and the name-update prompt are pending for the
+   same user, welcome renders first — `namePromptVisible` is still seeded from its own prop
+   underneath, so dismissing welcome reveals the name prompt next rather than both stacking or
+   racing.
+
+Because the column defaults to `false` for every row — new and pre-existing alike — one migration
+covers both cases the product asked for: a freshly onboarded user sees it the moment they land on
+`/` for the first time, and every user who existed before migration 026 shipped sees it once on
+their next login. No backfill script, no separate "is this a new user" branch.
 
 ### Realtime/websocket flows
 
@@ -445,11 +470,12 @@ live.
 etc.) that every `src/lib/data/*` module maps into. Does not describe the real database — see
 CLAUDE.md's two-schema section for why this exists and how to extend it safely.
 
-**`supabase/migrations/`** — numbered SQL migrations, 001–024, applied in order. History was
-repaired 2026-08-17 so `supabase migration list --linked` correctly shows 001–024 as applied on
-remote (001–020 had been applied by hand via the dashboard SQL editor originally, so the CLI's
-tracking table didn't know about them until the repair). See the schema drift section above for
-the drift that existed before 021–024 closed it.
+**`supabase/migrations/`** — numbered SQL migrations, 001–024 plus 026 (025 is held back, see
+`migrations_on_hold/` below), applied in order. History was repaired 2026-08-17 so
+`supabase migration list --linked` correctly shows these as applied on remote (001–020 had been
+applied by hand via the dashboard SQL editor originally, so the CLI's tracking table didn't know
+about them until the repair). See the schema drift section above for the drift that existed
+before 021–024 closed it.
 
 **`supabase/migrations_on_hold/`** — migrations that are written and reviewed but deliberately not
 applied. Currently just 025 (settle_bet notification fan-out) — see "Known rough edges." Kept out

@@ -8,6 +8,7 @@ import { FaydThatSheet } from "@/components/FaydThatSheet";
 import { StartNewContractSheet } from "@/components/StartNewContractSheet";
 import { Toast } from "@/components/Toast";
 import { NameUpdatePrompt } from "@/components/NameUpdatePrompt";
+import { WelcomeWalkthrough } from "@/components/WelcomeWalkthrough";
 import { addMyActiveContract } from "@/lib/sessionState";
 import { formatCents } from "@/lib/format";
 import { USE_MOCK_DATA } from "@/lib/config";
@@ -38,10 +39,12 @@ export function HomeClient({
   bets: initialBets,
   currentUser,
   showNamePrompt: showNamePromptProp = false,
+  showWelcome: showWelcomeProp = false,
 }: {
   bets: BetView[];
   currentUser: UserLite;
   showNamePrompt?: boolean;
+  showWelcome?: boolean;
 }) {
   const router = useRouter();
   const [bets, setBets] = useState<BetView[]>(initialBets);
@@ -49,6 +52,10 @@ export function HomeClient({
   const [startSheet, setStartSheet] = useState<StartSheetState>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [namePromptVisible, setNamePromptVisible] = useState(showNamePromptProp);
+  // Welcome takes priority when both are pending — it renders first, and
+  // dismissing it reveals the name prompt underneath (namePromptVisible is
+  // already set from its own prop, independent of this one).
+  const [welcomeVisible, setWelcomeVisible] = useState(showWelcomeProp);
 
   // Keep local state aligned with server-fetched bets when the page is
   // re-rendered (e.g. via router.refresh on focus).
@@ -149,7 +156,14 @@ export function HomeClient({
 
       {toast ? <Toast message={toast} onDone={() => setToast(null)} /> : null}
 
-      {namePromptVisible ? (
+      {welcomeVisible ? (
+        <WelcomeWalkthrough
+          onDone={() => {
+            setWelcomeVisible(false);
+            router.refresh();
+          }}
+        />
+      ) : namePromptVisible ? (
         <NameUpdatePrompt
           onDone={() => {
             setNamePromptVisible(false);
