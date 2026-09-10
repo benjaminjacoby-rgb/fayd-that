@@ -9,6 +9,7 @@ import { EditProfileSheet } from "@/components/EditProfileSheet";
 import { Toast } from "@/components/Toast";
 import { formatCents, fullName } from "@/lib/format";
 import { IS_PAYMENTS_LIVE, USE_MOCK_DATA } from "@/lib/config";
+import { createClient } from "@/lib/supabase/client";
 import type { GroupView, UserRow } from "@/types/db";
 
 export function ProfileClient({
@@ -32,7 +33,23 @@ export function ProfileClient({
   const [me, setMe] = useState<UserRow>(meProp);
   const [editing, setEditing] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [loggingOut, setLoggingOut] = useState(false);
   const totalPendingApprovals = groups.reduce((s, g) => s + (g.is_admin ? g.pending_join_count : 0), 0);
+
+  async function logOut() {
+    setLoggingOut(true);
+    try {
+      if (!USE_MOCK_DATA) {
+        const supabase = createClient();
+        await supabase.auth.signOut();
+      }
+      router.push("/login");
+      router.refresh();
+    } catch {
+      setLoggingOut(false);
+      setToast("Failed to log out — try again.");
+    }
+  }
 
   return (
     <div className="px-4 pt-4 flex flex-col gap-5">
@@ -171,16 +188,15 @@ export function ProfileClient({
         </Link>
       </section>
 
-      {/* Privacy & safety */}
-      <section className="bg-bg2 rounded-card p-4">
-        <h2 className="font-semibold mb-3">Privacy & Safety</h2>
-        <Link
-          href="/profile/blocked"
-          className="block text-center text-sm font-medium text-text2 hover:text-text bg-bg3 hover:bg-bg4 rounded-input py-2.5"
-        >
-          Blocked users
-        </Link>
-      </section>
+      {/* Account */}
+      <button
+        type="button"
+        onClick={logOut}
+        disabled={loggingOut}
+        className="text-no text-sm font-medium bg-bg2 hover:bg-bg3 rounded-input py-2.5 disabled:opacity-50"
+      >
+        {loggingOut ? "Logging out…" : "Log out"}
+      </button>
 
       {/* Legal links */}
       <div className="flex items-center justify-center gap-3 py-2 pb-4">
