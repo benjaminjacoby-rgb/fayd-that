@@ -17,6 +17,24 @@ import {
 import { closeBet } from "@/lib/data/betsClient";
 import type { BetSide, BetView, UserLite } from "@/types/db";
 
+// ── Mediation queue helpers ─────────────────────────────────────────────────
+
+function partiesFor(bet: BetView): Array<{ user: UserLite; side: BetSide }> {
+  const byId = new Map<string, { user: UserLite; side: BetSide }>();
+  if (bet.creator_id && bet.post_meta) {
+    byId.set(bet.creator_id, { user: bet.creator, side: bet.post_meta.poster_side });
+  }
+  for (const c of bet.contracts ?? []) {
+    if (c.yes_user_id && !byId.has(c.yes_user_id)) {
+      byId.set(c.yes_user_id, { user: c.yes_user, side: "yes" });
+    }
+    if (c.no_user_id && !byId.has(c.no_user_id)) {
+      byId.set(c.no_user_id, { user: c.no_user, side: "no" });
+    }
+  }
+  return Array.from(byId.values());
+}
+
 // ── History helpers ───────────────────────────────────────────────────────────
 
 interface HistoryItem {
@@ -89,7 +107,7 @@ export interface PendingContractSeed {
   createdAt: string;
 }
 
-type Tab = "active" | "history";
+type Tab = "active" | "mediating" | "history";
 
 export function PendingClient({
   currentUser,
@@ -97,12 +115,14 @@ export function PendingClient({
   initialContracts,
   initialResolvedPosts,
   initialResolvedContracts,
+  initialMediating,
 }: {
   currentUser: UserLite;
   initialPosts: PendingPostSeed[];
   initialContracts: PendingContractSeed[];
   initialResolvedPosts: PendingPostSeed[];
   initialResolvedContracts: PendingContractSeed[];
+  initialMediating: BetView[];
 }) {
   useSessionStore(); // re-render on session-store changes
   const router = useRouter();
@@ -110,8 +130,14 @@ export function PendingClient({
   const [tab, setTab] = useState<Tab>("active");
   const [historySearch, setHistorySearch] = useState("");
   const [activeSearch, setActiveSearch] = useState("");
+  const [mediating, setMediating] = useState<BetView[]>(initialMediating);
   useEffect(() => setMounted(true), []);
   const onSettled = () => router.refresh();
+
+  function handleMediatorSettled(betId: string) {
+    setMediating((prev) => prev.filter((b) => b.id !== betId));
+    router.refresh();
+  }
 
   // Active (unresolved) bets — session store wins over stale server snapshot.
   const sessionPosts = mounted ? getMyPosts().filter((p) => p.source === "session") : [];
@@ -224,6 +250,9 @@ export function PendingClient({
         <TabButton active={tab === "active"} onClick={() => setTab("active")}>
           Active
         </TabButton>
+        <TabButton active={tab === "mediating"} onClick={() => setTab("mediating")}>
+          Mediating{mediating.length > 0 ? ` (${mediating.length})` : ""}
+        </TabButton>
         <TabButton active={tab === "history"} onClick={() => setTab("history")}>
           History
         </TabButton>
@@ -310,6 +339,64 @@ export function PendingClient({
                 </section>
               ) : null}
             </div>
+          )}
+        </div>
+      ) : tab === "mediating" ? (
+        <div className="px-4 pt-3 pb-6 flex flex-col gap-4">
+          {mediating.length === 0 ? (
+            <p className="text-text3 text-sm italic pt-4 text-center">
+              Bets you mediate will show up here once they close.
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-3">
+              {mediating.map((bet) => (
+                <li key={bet.id} className="bg-bg2 rounded-card p-4 border border-gold/20">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="font-medium leading-snug flex-1">{bet.question}</p>
+                    <span className="text-[11px] uppercase font-semibold bg-gold/20 text-gold rounded-pill px-2 py-0.5 whitespace-nowrap">
+                      {formatCents(bet.stake_cents)} staked
+                    </span>
+                  </div>
+                  <span
+                    className={`inline-block mt-1.5 text-[10px] font-bold uppercase tracking-wide rounded-pill px-2 py-0.5 ${
+                      bet.status === "closed" ? "bg-no/15 text-no" : "bg-bg3 text-text3"
+                    }`}
+                  >
+                    {bet.status === "closed" ? "Ready to rule" : "Still open — waiting to close"}
+                  </span>
+
+                  <ul className="mt-3 flex flex-col gap-2">
+                    {partiesFor(bet).map(({ user, side }) => (
+                      <li key={user.id} className="bg-bg3 rounded-input p-3 flex items-center gap-2">
+                        <Avatar
+                          first={user.first_name}
+                          lastInitial={user.last_name_initial}
+                          color={user.avatar_color}
+                          imageUrl={user.avatar_url}
+                          size={24}
+                        />
+                        <span className="text-sm flex-1">
+                          {user.id === currentUser.id ? "You" : fullName(user)}
+                        </span>
+                        <span
+                          className={`text-[11px] font-semibold uppercase rounded-pill px-2 py-0.5 ${
+                            side === "yes" ? "bg-yes/20 text-yes" : "bg-no/20 text-no"
+                          }`}
+                        >
+                          {side}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  <ResolutionSection
+                    bet={bet}
+                    currentUserId={currentUser.id}
+                    onSettled={() => handleMediatorSettled(bet.id)}
+                  />
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       ) : (

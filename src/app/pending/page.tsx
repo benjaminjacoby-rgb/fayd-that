@@ -1,9 +1,10 @@
 import { AppShell } from "@/components/AppShell";
 import { PendingClient } from "./PendingClient";
 import { USE_MOCK_DATA } from "@/lib/config";
-import { MOCK_CURRENT_USER } from "@/lib/mock";
+import { MOCK_CURRENT_USER, mockMediationQueue } from "@/lib/mock";
 import { getCurrentUserRow } from "@/lib/data/profile";
 import { getPendingActivity } from "@/lib/data/pending";
+import { getMediationQueue } from "@/lib/data/bets";
 import { pickAvatarColor } from "@/lib/avatar";
 import type { UserLite } from "@/types/db";
 
@@ -26,6 +27,7 @@ export default async function PendingPage() {
           initialContracts={[]}
           initialResolvedPosts={[]}
           initialResolvedContracts={[]}
+          initialMediating={mockMediationQueue()}
         />
       </AppShell>
     );
@@ -33,6 +35,7 @@ export default async function PendingPage() {
 
   const userRow = await getCurrentUserRow();
   const { posts, contracts, resolvedPosts, resolvedContracts } = await getPendingActivity();
+  const mediating = await getMediationQueue(userRow?.id ?? MOCK_CURRENT_USER.id);
 
   const currentUser: UserLite = userRow
     ? {
@@ -59,6 +62,7 @@ export default async function PendingPage() {
         initialContracts={contracts}
         initialResolvedPosts={resolvedPosts}
         initialResolvedContracts={resolvedContracts}
+        initialMediating={mediating}
       />
     </AppShell>
   );
